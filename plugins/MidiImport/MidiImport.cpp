@@ -31,6 +31,7 @@
 #include <QProgressDialog>
 
 #include <sstream>
+#include <memory>
 
 #include "MidiImport.h"
 #include "TrackContainer.h"
@@ -45,6 +46,7 @@
 #include "MidiTime.h"
 #include "debug.h"
 #include "Song.h"
+#include "stdshims.h"
 
 #include "embed.h"
 #include "plugin_export.h"
@@ -305,15 +307,8 @@ public:
 
 bool MidiImport::readSMF( TrackContainer* tc )
 {
-
+	std::unique_ptr<QProgressDialog> pd;
 	const int preTrackSteps = 2;
-	QProgressDialog pd( TrackContainer::tr( "Importing MIDI-file..." ),
-	TrackContainer::tr( "Cancel" ), 0, preTrackSteps, gui->mainWindow() );
-	pd.setWindowTitle( TrackContainer::tr( "Please wait..." ) );
-	pd.setWindowModality(Qt::WindowModal);
-	pd.setMinimumDuration( 0 );
-
-	pd.setValue( 0 );
 
 	std::stringstream stream;
 	QByteArray arr = readAllData();
@@ -322,8 +317,19 @@ bool MidiImport::readSMF( TrackContainer* tc )
 	Alg_seq_ptr seq = new Alg_seq(stream, true);
 	seq->convert_to_beats();
 
-	pd.setMaximum( seq->tracks()  + preTrackSteps );
-	pd.setValue( 1 );
+	if (gui)
+	{
+		pd = std::move(make_unique<QProgressDialog>(TrackContainer::tr("Importing MIDI-file..."),
+			TrackContainer::tr("Cancel"), 0, preTrackSteps, gui->mainWindow()));
+		pd->setWindowTitle( TrackContainer::tr( "Please wait..." ) );
+		pd->setWindowModality(Qt::WindowModal);
+		pd->setMinimumDuration( 0 );
+
+		pd->setValue( 0 );
+
+		pd->setMaximum( seq->tracks()  + preTrackSteps );
+		pd->setValue( 1 );
+	}
 	
 	// 128 CC + Pitch Bend
 	smfMidiCC ccs[129];
@@ -361,7 +367,7 @@ bool MidiImport::readSMF( TrackContainer* tc )
 	timeSigNumeratorPat->updateLength();
 	timeSigDenominatorPat->updateLength();
 
-	pd.setValue( 2 );
+	if (pd.get()) {pd->setValue(2);}
 
 	// Tempo stuff
 	AutomationPattern * tap = tc->tempoAutomationPattern();
@@ -405,7 +411,7 @@ bool MidiImport::readSMF( TrackContainer* tc )
 	{
 		QString trackName = QString( tr( "Track" ) + " %1" ).arg( t );
 		Alg_track_ptr trk = seq->track( t );
-		pd.setValue( t + preTrackSteps );
+		if (pd.get()) {pd->setValue(t + preTrackSteps);}
 
 		for( int c = 0; c < 129; c++ )
 		{

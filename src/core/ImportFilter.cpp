@@ -24,11 +24,13 @@
 
 
 #include <memory>
+#include <QDebug>
 #include <QMessageBox>
 
 #include "ImportFilter.h"
 #include "Engine.h"
 #include "TrackContainer.h"
+#include "GuiApplication.h"
 #include "PluginFactory.h"
 #include "ProjectJournal.h"
 
@@ -79,16 +81,24 @@ void ImportFilter::import( const QString & _file_to_import,
 
 	if( successful == false )
 	{
-		QMessageBox::information( NULL,
-			TrackContainer::tr( "Couldn't import file" ),
-			TrackContainer::tr( "Couldn't find a filter for "
+		QString errorMessage = TrackContainer::tr("Couldn't find a filter for "
 						"importing file %1.\n"
 						"You should convert this file "
 						"into a format supported by "
 						"LMMS using another software."
-						).arg( _file_to_import ),
-					QMessageBox::Ok,
-					QMessageBox::NoButton );
+						).arg(_file_to_import);
+		if (gui)
+		{
+			QMessageBox::information( NULL,
+				TrackContainer::tr( "Couldn't import file" ),
+				errorMessage,
+				QMessageBox::Ok,
+				QMessageBox::NoButton );
+		}
+		else
+		{
+			qWarning().noquote() << errorMessage;
+		}
 	}
 }
 
@@ -99,17 +109,24 @@ bool ImportFilter::openFile()
 {
 	if( m_file.open( QFile::ReadOnly ) == false )
 	{
-		QMessageBox::critical( NULL,
-			TrackContainer::tr( "Couldn't open file" ),
-			TrackContainer::tr( "Couldn't open file %1 "
+		QString errorMessage = TrackContainer::tr("Couldn't open file %1 "
 						"for reading.\nPlease make "
 						"sure you have read-"
 						"permission to the file and "
 						"the directory containing the "
-						"file and try again!" ).arg(
-							m_file.fileName() ),
-					QMessageBox::Ok,
-					QMessageBox::NoButton );
+						"file and try again!").arg(m_file.fileName());
+		if (gui)
+		{
+			QMessageBox::critical( NULL,
+				TrackContainer::tr( "Couldn't open file" ),
+				errorMessage,
+				QMessageBox::Ok,
+				QMessageBox::NoButton );
+		}
+		else
+		{
+			qWarning().noquote() << errorMessage;
+		}
 		return false;
 	}
 	return true;
