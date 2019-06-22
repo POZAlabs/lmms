@@ -139,6 +139,10 @@ _lmms()
             filetypes='mid|midi|MID|MIDI|rmi|RMI|h2song|H2SONG'
             filemode='existing_files'
             ;;
+        --save-as)
+            filetypes='mmp|mmpz'
+            filemode='files'
+            ;;
         --mode|-m)
             params='s j m'
             ;;
@@ -208,10 +212,9 @@ _lmms()
                 done
             fi
             
-            if [[ $prev =~ -e|--help|-h|-version|-v ]]
+            if [[ $prev =~ --help|-h|-version|-v ]]
             then
-                # the -e flag (from --import) and help/version
-                # always mark the end of arguments
+                # help/version always mark the end of arguments
                 return
             fi
             

@@ -80,6 +80,21 @@
 #endif
 
 
+class EngineGuard {
+public:
+	EngineGuard(bool coreOnly) : m_coreOnly(coreOnly)
+	{
+		if (coreOnly) {Engine::init(true);}
+	}
+	~EngineGuard()
+	{
+		if (m_coreOnly) {Engine::destroy();}
+	}
+private:
+	bool m_coreOnly;
+};
+
+
 #ifdef LMMS_DEBUG_FPE
 void signalHandler( int signum ) {
 
@@ -178,9 +193,9 @@ void printHelp()
 		"      --geometry <geometry>      Specify the size and position of\n"
 		"          the main window\n"
 		"          geometry is <xsizexysize+xoffset+yoffsety>.\n"
-		"      --import <in> [-e]         Import MIDI or Hydrogen file <in>.\n"
-		"          If -e is specified lmms exits after importing the file.\n"
-		"\nOptions for \"render\" and \"rendertracks\":\n"
+		"      --import <in>              Import MIDI or Hydrogen file <in>.\n"
+		"      --base-template <template> use <template> as a base for importing files\n"
+		"      --save-as <out>            Save the imported/converted file to <out>\n"
 		"  -a, --float                    Use 32bit float bit depth\n"
 		"  -b, --bitrate <bitrate>        Specify output bitrate in KBit/s\n"
 		"          Default: 160.\n"
@@ -298,11 +313,11 @@ int main( int argc, char * * argv )
 
 	bool coreOnly = false;
 	bool fullscreen = true;
-	bool exitAfterImport = false;
 	bool allowRoot = false;
 	bool renderLoop = false;
 	bool renderTracks = false;
-	QString fileToLoad, fileToImport, renderOut, profilerOutputFile, configFile;
+	bool runQApp = true;
+	QString fileToLoad, fileToImport, importTemplateFile, fileToSave, renderOut, profilerOutputFile, configFile;
 
 	// first of two command-line parsing stages
 	for( int i = 1; i < argc; ++i )
@@ -319,6 +334,11 @@ int main( int argc, char * * argv )
 		{
 			coreOnly = true;
 			renderTracks = true;
+		}
+		else if (arg == "--save-as")
+		{
+			coreOnly = true;
+			runQApp = false;
 		}
 		else if( arg == "--allowroot" )
 		{
@@ -660,13 +680,26 @@ int main( int argc, char * * argv )
 			}
 
 			fileToImport = QString::fromLocal8Bit( argv[i] );
-
-			// exit after import? (only for debugging)
-			if( QString( argv[i + 1] ) == "-e" )
+		}
+		else if (arg == "--base-template")
+		{
+			++i;
+			if (i == argc)
 			{
-				exitAfterImport = true;
-				++i;
+				return usageError("No file specified for import base template");
 			}
+
+			importTemplateFile = QString::fromLocal8Bit(argv[i]);
+		}
+		else if (arg == "--save-as")
+		{
+			++i;
+			if (i == argc)
+			{
+				return usageError("No file specified for import base template");
+			}
+
+			fileToSave = QString::fromLocal8Bit(argv[i]);
 		}
 		else if( arg == "--profile" || arg == "-p" )
 		{
@@ -701,14 +734,19 @@ int main( int argc, char * * argv )
 		}
 	}
 
+
 	// Test file argument before continuing
-	if( !fileToLoad.isEmpty() )
+	if (!fileToLoad.isEmpty())
 	{
-		fileCheck( fileToLoad );
+		fileCheck(fileToLoad);
 	}
-	else if( !fileToImport.isEmpty() )
+	if (!fileToImport.isEmpty())
 	{
-		fileCheck( fileToImport );
+		fileCheck(fileToImport);
+	}
+	if (!importTemplateFile.isEmpty())
+	{
+		fileCheck(importTemplateFile);
 	}
 
 	ConfigManager::inst()->loadConfigFile(configFile);
@@ -772,23 +810,36 @@ int main( int argc, char * * argv )
 	}
 #endif
 
-	bool destroyEngine = false;
+	int ret = EXIT_FAILURE;
 
+	EngineGuard guard(coreOnly);
+
+	if (!fileToImport.isEmpty() && coreOnly)
+	{
+		if (!importTemplateFile.isEmpty())
+		{
+			printf("Loading base project...\n");
+			Engine::getSong()->loadProject(importTemplateFile);
+			printf("Done\n");
+		}
+		ImportFilter::import(fileToImport, Engine::getSong());
+	}
+
+	// if we have an output file for saving, just save it without starting the GUI
+	if (!fileToSave.isEmpty())
+	{
+		ret = Engine::getSong()->saveProjectFile(fileToSave) ? EXIT_SUCCESS : EXIT_FAILURE;
+	}
 	// if we have an output file for rendering, just render the song
 	// without starting the GUI
-	if( !renderOut.isEmpty() )
+	else if( !renderOut.isEmpty() )
 	{
-		Engine::init( true );
-		destroyEngine = true;
-
-		printf( "Loading project...\n" );
-		Engine::getSong()->loadProject( fileToLoad );
-		if( Engine::getSong()->isEmpty() )
+		if (!fileToLoad.isEmpty())
 		{
-			printf("The project %s is empty, aborting!\n", fileToLoad.toUtf8().constData() );
-			exit( EXIT_FAILURE );
+			printf("Loading project...\n");
+			Engine::getSong()->loadProject(fileToLoad);
+			printf("Done\n");
 		}
-		printf( "Done\n" );
 
 		Engine::getSong()->setExportLoop( renderLoop );
 
@@ -826,7 +877,7 @@ int main( int argc, char * * argv )
 			r->renderProject();
 		}
 	}
-	else // otherwise, start the GUI
+	else if (!coreOnly) // otherwise, start the GUI
 	{
 		new GuiApplication();
 
@@ -944,10 +995,6 @@ int main( int argc, char * * argv )
 		else if( !fileToImport.isEmpty() )
 		{
 			ImportFilter::import( fileToImport, Engine::getSong() );
-			if( exitAfterImport )
-			{
-				return EXIT_SUCCESS;
-			}
 		}
 		// If enabled, open last project if there is one. Else, create
 		// a new one.
@@ -985,13 +1032,8 @@ int main( int argc, char * * argv )
 		}
 	}
 
-	const int ret = app->exec();
+	if (runQApp) {ret = app->exec();}
 	delete app;
-
-	if( destroyEngine )
-	{
-		Engine::destroy();
-	}
 
 	// ProjectRenderer::updateConsoleProgress() doesn't return line after render
 	if( coreOnly )
