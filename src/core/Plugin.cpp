@@ -176,6 +176,13 @@ void Plugin::loadFile( const QString & )
 
 
 
+void Plugin::loadPluginPresetFile(const QString &)
+{
+}
+
+
+
+
 AutomatableModel * Plugin::childModel( const QString & )
 {
 	static FloatModel fm;

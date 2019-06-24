@@ -269,6 +269,9 @@ public:
 	//! loaded/processed with the help of this plugin
 	virtual void loadFile( const QString & file );
 
+	//! Load plugin-specific preset file, ex. .xpf files for VSTs
+	virtual void loadPluginPresetFile(const QString & file);
+
 	//! Called if external source needs to change something but we cannot
 	//! reference the class header.  Should return null if not key not found.
 	virtual AutomatableModel* childModel( const QString & modelName );

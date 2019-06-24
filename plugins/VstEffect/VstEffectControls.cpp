@@ -180,7 +180,7 @@ void VstEffectControls::savePreset( void )
 {
 
 	if ( m_effect->m_plugin != NULL ) {
-		m_effect->m_plugin->savePreset( );
+		m_effect->m_plugin->guiSavePreset();
 /*    		bool converted;
     		QString str = m_vi->m_plugin->currentProgramName().section("/", 0, 0);
      		if (str != "")
@@ -232,7 +232,7 @@ void VstEffectControls::openPreset( void )
 {
 
 	if ( m_effect->m_plugin != NULL ) {
-		m_effect->m_plugin->openPreset( );
+		m_effect->m_plugin->guiOpenPreset();
     		bool converted;
     		QString str = m_effect->m_plugin->currentProgramName().section("/", 0, 0);
      		if (str != "")

@@ -388,6 +388,15 @@ void vestigeInstrument::loadFile( const QString & _file )
 
 
 
+void vestigeInstrument::loadPluginPresetFile(const QString& file)
+{
+	QMutexLocker ml(&m_pluginMutex);
+	m_plugin->openPreset(file);
+}
+
+
+
+
 void vestigeInstrument::play( sampleFrame * _buf )
 {
 	if (!m_pluginMutex.tryLock(Engine::getSong()->isExporting() ? -1 : 0)) {return;}
@@ -725,7 +734,7 @@ void VestigeInstrumentView::openPreset()
 {
 
 	if ( m_vi->m_plugin != NULL ) {
-		m_vi->m_plugin->openPreset( );
+		m_vi->m_plugin->guiOpenPreset();
     		bool converted;
     		QString str = m_vi->m_plugin->currentProgramName().section("/", 0, 0);
      		if (str != "")
@@ -743,7 +752,7 @@ void VestigeInstrumentView::savePreset()
 
 	if ( m_vi->m_plugin != NULL )
 	{
-		m_vi->m_plugin->savePreset( );
+		m_vi->m_plugin->guiSavePreset();
 /*    		bool converted;
     		QString str = m_vi->m_plugin->presetString().section("/", 0, 0);
      		if (str != "")

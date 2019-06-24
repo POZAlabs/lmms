@@ -479,7 +479,7 @@ QWidget *VstPlugin::editor()
 }
 
 
-void VstPlugin::openPreset( )
+void VstPlugin::guiOpenPreset()
 {
 
 	FileDialog ofd( NULL, tr( "Open Preset" ), "",
@@ -489,17 +489,23 @@ void VstPlugin::openPreset( )
 					!ofd.selectedFiles().isEmpty() )
 	{
 		lock();
-		sendMessage( message( IdLoadPresetFile ).
-			addString(
-				QSTR_TO_STDSTR(
-					QDir::toNativeSeparators( ofd.selectedFiles()[0] ) ) )
-			);
-		waitForMessage( IdLoadPresetFile, true );
+		openPreset(ofd.selectedFiles()[0]);
 		unlock();
 	}
 }
 
 
+void VstPlugin::openPreset(const QString& file)
+{
+	lock();
+	sendMessage(message(IdLoadPresetFile).
+		addString(
+			QSTR_TO_STDSTR(
+				QDir::toNativeSeparators(file)))
+		);
+	waitForMessage(IdLoadPresetFile, true);
+	unlock();
+}
 
 
 void VstPlugin::setProgram( int index )
@@ -557,7 +563,7 @@ void VstPlugin::loadParameterDisplays()
 
 
 
-void VstPlugin::savePreset( )
+void VstPlugin::guiSavePreset()
 {
 	QString presName = currentProgramName().isEmpty() ? tr(": default") : currentProgramName();
 	presName.replace(tr("\""), tr("'")); // QFileDialog unable to handle double quotes properly
@@ -581,15 +587,23 @@ void VstPlugin::savePreset( )
 		if ((fns.toUpper().indexOf(tr(".FXP")) == -1) && (fns.toUpper().indexOf(tr(".FXB")) == -1))
 			fns = fns + tr(".fxb");
 		else fns = fns.left(fns.length() - 4) + (fns.right( 4 )).toLower();
-		lock();
-		sendMessage( message( IdSavePresetFile ).
-			addString(
-				QSTR_TO_STDSTR(
-					QDir::toNativeSeparators( fns ) ) )
-			);
-		waitForMessage( IdSavePresetFile, true );
-		unlock();
+		savePreset(fns);
 	}
+}
+
+
+
+
+void VstPlugin::savePreset(const QString& file)
+{
+	lock();
+	sendMessage(message(IdSavePresetFile).
+		addString(
+			QSTR_TO_STDSTR(
+				QDir::toNativeSeparators(file)))
+		);
+	waitForMessage(IdSavePresetFile, true);
+	unlock();
 }
 
 

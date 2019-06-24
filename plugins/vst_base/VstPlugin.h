@@ -126,13 +126,15 @@ public:
 public slots:
 	void setTempo( bpm_t _bpm );
 	void updateSampleRate();
-	void openPreset( void );
+	void guiOpenPreset();
+	void openPreset(const QString& file);
 	void setProgram( int index );
 	void rotateProgram( int offset );
 	void loadProgramNames();
 	void loadParameterLabels();
 	void loadParameterDisplays();
-	void savePreset( void );
+	void guiSavePreset();
+	void savePreset(const QString& file);
 	void setParam( int i, float f );
 	void idleUpdate();
 

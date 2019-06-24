@@ -61,6 +61,7 @@ public:
 	virtual QString nodeName( void ) const;
 
 	virtual void loadFile( const QString & _file );
+	virtual void loadPluginPresetFile(const QString& file);
 
 	virtual Flags flags() const
 	{
