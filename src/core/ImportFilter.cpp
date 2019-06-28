@@ -54,8 +54,9 @@ ImportFilter::~ImportFilter()
 
 
 
-void ImportFilter::import( const QString & _file_to_import,
-							TrackContainer* tc )
+void ImportFilter::import(const QString & _file_to_import,
+						TrackContainer* tc,
+						QJsonValue config)
 {
 	bool successful = false;
 
@@ -70,7 +71,7 @@ void ImportFilter::import( const QString & _file_to_import,
 	{
 		unique_ptr<Plugin> p(Plugin::instantiate( desc->name, NULL, s.data() ));
 		if( dynamic_cast<ImportFilter *>( p.get() ) != NULL &&
-			dynamic_cast<ImportFilter *>( p.get() )->tryImport( tc ) )
+			dynamic_cast<ImportFilter *>( p.get() )->tryImport(tc, config) )
 		{
 			successful = true;
 			break;

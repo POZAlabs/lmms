@@ -47,7 +47,7 @@ public:
 
 
 private:
-	virtual bool tryImport( TrackContainer* tc );
+	virtual bool tryImport(TrackContainer* tc, QJsonValue config = QJsonValue());
 
 	bool readSMF( TrackContainer* tc );
 	bool readRIFF( TrackContainer* tc );

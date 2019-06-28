@@ -26,12 +26,14 @@
 #ifndef IMPORT_FILTER_H
 #define IMPORT_FILTER_H
 
-#include <QtCore/QFile>
+#include <QFile>
+#include <QJsonValue>
 
 #include "Plugin.h"
 
 
 class TrackContainer;
+class QJsonValue;
 
 
 class LMMS_EXPORT ImportFilter : public Plugin
@@ -44,12 +46,13 @@ public:
 
 	// tries to import given file to given track-container by having all
 	// available import-filters to try to import the file
-	static void import( const QString & _file_to_import,
-						TrackContainer* tc );
+	static void import(const QString & fileToImport,
+						TrackContainer* tc,
+						QJsonValue config = QJsonValue());
 
 
 protected:
-	virtual bool tryImport( TrackContainer* tc ) = 0;
+	virtual bool tryImport(TrackContainer* tc, QJsonValue config = QJsonValue()) = 0;
 
 	const QFile & file() const
 	{

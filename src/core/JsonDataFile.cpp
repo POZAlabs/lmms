@@ -93,6 +93,7 @@ JsonDataFile& JsonDataFile::operator=(QJsonDocument&& other)
 
 JsonDataFile JsonDataFile::fromFile(const QString& fileName)
 {
+	if (fileName.isEmpty()) {return JsonDataFile();}
 	QFile file(fileName);
 	if (!file.open(QIODevice::ReadOnly)) {return JsonDataFile();}
 	return JsonDataFile(QJsonDocument::fromJson(file.readAll()));
@@ -101,6 +102,7 @@ JsonDataFile JsonDataFile::fromFile(const QString& fileName)
 
 void JsonDataFile::readFile(const QString& fileName)
 {
+	if (fileName.isEmpty()) {return;}
 	QFile file(fileName);
 	if (!file.open(QIODevice::ReadOnly)) {return;}
 	static_cast<JsonDataFile&>(*this) = QJsonDocument::fromJson(file.readAll());
@@ -108,6 +110,7 @@ void JsonDataFile::readFile(const QString& fileName)
 
 void JsonDataFile::writeFile(const QString& fileName)
 {
+	if (fileName.isEmpty()) {return;}
 	QFile file(fileName);
 	if (!file.open(QIODevice::WriteOnly)) {return;}
 	file.write(toJson());

@@ -96,7 +96,7 @@ MidiImport::~MidiImport()
 
 
 
-bool MidiImport::tryImport( TrackContainer* tc )
+bool MidiImport::tryImport(TrackContainer* tc, QJsonValue config)
 {
 	if( openFile() == false )
 	{

@@ -21,7 +21,7 @@ public:
 		return( NULL );
 	}
 private:
-	virtual bool tryImport( TrackContainer* tc );
+	virtual bool tryImport(TrackContainer* tc, QJsonValue config = QJsonValue());
 };
 #endif
 

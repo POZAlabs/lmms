@@ -333,7 +333,7 @@ bool HydrogenImport::readSong()
 	}
 	return true;
 }
-bool HydrogenImport::tryImport( TrackContainer* tc )
+bool HydrogenImport::tryImport(TrackContainer* tc, QJsonValue config)
 {
 	if( openFile() == false )
 	{
