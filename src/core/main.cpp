@@ -64,6 +64,7 @@
 #include "Engine.h"
 #include "GuiApplication.h"
 #include "ImportFilter.h"
+#include "JsonDataFile.h"
 #include "MainWindow.h"
 #include "MixHelpers.h"
 #include "OutputSettings.h"
@@ -193,7 +194,9 @@ void printHelp()
 		"      --geometry <geometry>      Specify the size and position of\n"
 		"          the main window\n"
 		"          geometry is <xsizexysize+xoffset+yoffsety>.\n"
-		"      --import <in>              Import MIDI or Hydrogen file <in>.\n"
+		"      --import <in> [--import-config <config>]\n"
+		"          Import MIDI or Hydrogen file <in>.\n"
+		"          If --import-config is specified, use <config> for importing.\n"
 		"      --base-template <template> use <template> as a base for importing files\n"
 		"      --save-as <out>            Save the imported/converted file to <out>\n"
 		"  -a, --float                    Use 32bit float bit depth\n"
@@ -317,7 +320,8 @@ int main( int argc, char * * argv )
 	bool renderLoop = false;
 	bool renderTracks = false;
 	bool runQApp = true;
-	QString fileToLoad, fileToImport, importTemplateFile, fileToSave, renderOut, profilerOutputFile, configFile;
+	QString fileToLoad, fileToImport, fileToSave, renderOut, profilerOutputFile, configFile;
+	QString importTemplateFile, importConfigFile;
 
 	// first of two command-line parsing stages
 	for( int i = 1; i < argc; ++i )
@@ -680,6 +684,13 @@ int main( int argc, char * * argv )
 			}
 
 			fileToImport = QString::fromLocal8Bit( argv[i] );
+
+			if (i + 1 != argc && QString(argv[i + 1]) == "--import-config")
+			{
+				if (i + 2 == argc) {return usageError("No file specified for import config file");}
+				importConfigFile = QString::fromLocal8Bit(argv[i + 2]);
+				i += 2;
+			}
 		}
 		else if (arg == "--base-template")
 		{
@@ -747,6 +758,10 @@ int main( int argc, char * * argv )
 	if (!importTemplateFile.isEmpty())
 	{
 		fileCheck(importTemplateFile);
+	}
+	if (!importConfigFile.isEmpty())
+	{
+		fileCheck(importConfigFile);
 	}
 
 	ConfigManager::inst()->loadConfigFile(configFile);
@@ -822,7 +837,7 @@ int main( int argc, char * * argv )
 			Engine::getSong()->loadProject(importTemplateFile);
 			printf("Done\n");
 		}
-		ImportFilter::import(fileToImport, Engine::getSong());
+		ImportFilter::import(fileToImport, Engine::getSong(), JsonDataFile::fromFile(importConfigFile).value());
 	}
 
 	// if we have an output file for saving, just save it without starting the GUI
