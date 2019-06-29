@@ -28,6 +28,8 @@
 #include <QString>
 #include <QPair>
 #include <QVector>
+#include <QJsonArray>
+#include <QJsonObject>
 
 #include "MidiEvent.h"
 #include "ImportFilter.h"
@@ -121,6 +123,7 @@ private:
 	typedef QVector<QPair<int, MidiEvent> > EventVector;
 	EventVector m_events;
 	int m_timingDivision;
+	QJsonObject m_settings;
 
 } ;
 

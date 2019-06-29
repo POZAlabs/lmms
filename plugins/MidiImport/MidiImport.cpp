@@ -46,6 +46,7 @@
 #include "MidiTime.h"
 #include "debug.h"
 #include "Song.h"
+#include "FxMixer.h"
 #include "stdshims.h"
 
 #include "embed.h"
@@ -129,6 +130,8 @@ bool MidiImport::tryImport(TrackContainer* tc, QJsonValue config)
 	}
 #endif
 
+	m_settings = config.toObject().value(QStringLiteral("MidiImportPreset")).toObject();
+
 	switch( readID() )
 	{
 		case makeID( 'M', 'T', 'h', 'd' ):
@@ -209,6 +212,37 @@ public:
 };
 
 
+class smfTrackMapping
+{
+public:
+	smfTrackMapping() :
+#ifdef LMMS_HAVE_FLUIDSYNTH
+		instrumentName(QStringLiteral("sf2player"))
+#else
+		instrumentName(QStringLiteral("patman"))
+#endif
+	{}
+
+	void parse(QJsonObject mapping)
+	{
+#ifdef LMMS_HAVE_FLUIDSYNTH
+		instrumentName = mapping.value("instrument").toString("sf2player");
+#else
+		instrumentName = mapping.value("instrument").toString("patman");
+#endif
+
+		fileName = mapping.value("file").toString("");
+		presetFileName = mapping.value("presetFile").toString("");
+		pluginPresetFileName = mapping.value("pluginPresetFile").toString("");
+		fxChannel = mapping.value("fxChannel").toInt(0);
+	}
+	QString instrumentName;
+	QString fileName;
+	QString presetFileName;
+	QString pluginPresetFileName;
+	int fxChannel;
+};
+
 
 class smfMidiChannel
 {
@@ -229,36 +263,49 @@ public:
 	bool hasNotes;
 	QString trackName;
 	
-	smfMidiChannel * create( TrackContainer* tc, QString tn )
+	smfMidiChannel * create(TrackContainer* tc, QString tn, const smfTrackMapping& mapping)
 	{
 		if( !it ) {
 			// Keep LMMS responsive
 			qApp->processEvents();
 			it = dynamic_cast<InstrumentTrack *>( Track::create( Track::InstrumentTrack, tc ) );
 
+			it_inst = it->loadInstrument(mapping.instrumentName);
+
 #ifdef LMMS_HAVE_FLUIDSYNTH
-			it_inst = it->loadInstrument( "sf2player" );
-		
-			if( it_inst )
+			if (mapping.instrumentName == QStringLiteral("sf2player"))
 			{
 				isSF2 = true;
 				it_inst->loadFile( ConfigManager::inst()->sf2File() );
 				it_inst->childModel( "bank" )->setValue( 0 );
 				it_inst->childModel( "patch" )->setValue( 0 );
 			}
-			else
-			{
-				it_inst = it->loadInstrument( "patman" );
-			}	
-#else
-			it_inst = it->loadInstrument( "patman" );
 #endif
+			if (!mapping.fileName.isEmpty())
+			{
+				it_inst->loadFile(mapping.fileName);
+			}
+			if (!mapping.presetFileName.isEmpty())
+			{
+				DataFile dataFile(mapping.presetFileName);
+				InstrumentTrack::removeMidiPortNode(dataFile);
+				it->setSimpleSerializing();
+				it->loadSettings(dataFile.content().toElement());
+			}
+			if (!mapping.pluginPresetFileName.isEmpty())
+			{
+				it_inst->loadPluginPresetFile(mapping.pluginPresetFileName);
+			}
 			trackName = tn;
 			if( trackName != "") {
 				it->setName( tn );
 			}
 			// General MIDI default
 			it->pitchRangeModel()->setInitValue( 2 );
+			if (mapping.fxChannel <= Engine::fxMixer()->numChannels())
+			{
+				it->effectChannelModel()->setInitValue(mapping.fxChannel);
+			}
 
 			// Create a default pattern
 			p = dynamic_cast<Pattern*>(it->createTCO(0));
@@ -334,6 +381,7 @@ bool MidiImport::readSMF( TrackContainer* tc )
 	// 128 CC + Pitch Bend
 	smfMidiCC ccs[129];
 	smfMidiChannel chs[256];
+	smfTrackMapping mappings[256];
 
 	MeterModel & timeSigMM = Engine::getSong()->getTimeSigModel();
 	AutomationTrack * nt = dynamic_cast<AutomationTrack*>(
@@ -354,6 +402,16 @@ bool MidiImport::readSMF( TrackContainer* tc )
 	// TODO: adjust these to Time.Sig changes
 	double beatsPerBar = 4; 
 	double ticksPerBeat = DefaultTicksPerBar / beatsPerBar;
+
+	// parse mappings
+	for (auto mapping : m_settings.value("mapping").toArray())
+	{
+		int channel = mapping.toObject().value("channel").toInt() - 1;
+		if (channel >= 0 && channel < 256)
+		{
+			mappings[channel].parse(mapping.toObject());
+		}
+	}
 
 	// Time-sig changes
 	Alg_time_sigs * timeSigs = &seq->time_sig;
@@ -452,12 +510,13 @@ bool MidiImport::readSMF( TrackContainer* tc )
 			}
 			else if( evt->is_note() && evt->chan < 256 )
 			{
-				smfMidiChannel * ch = chs[evt->chan].create( tc, trackName );
+				smfMidiChannel * ch = chs[evt->chan].create(tc, trackName, mappings[evt->chan]);
 				Alg_note_ptr noteEvt = dynamic_cast<Alg_note_ptr>( evt );
 				int ticks = noteEvt->get_duration() * ticksPerBeat;
+				int pitchCorrection = ch->it_inst->flags() & Instrument::IsMidiBased ? 0 : -12;
 				Note n( (ticks < 1 ? 1 : ticks ),
 						noteEvt->get_start_time() * ticksPerBeat,
-						noteEvt->get_identifier() - 12,
+						noteEvt->get_identifier() + pitchCorrection,
 						noteEvt->get_loud() * (200.f / 127.f)); // Map from MIDI velocity to LMMS volume
 				ch->addNote( n );
 				
@@ -465,7 +524,7 @@ bool MidiImport::readSMF( TrackContainer* tc )
 			
 			else if( evt->is_update() )
 			{
-				smfMidiChannel * ch = chs[evt->chan].create( tc, trackName );
+				smfMidiChannel * ch = chs[evt->chan].create(tc, trackName, mappings[evt->chan]);
 
 				double time = evt->time*ticksPerBeat;
 				QString update( evt->get_attribute() );
@@ -530,7 +589,9 @@ bool MidiImport::readSMF( TrackContainer* tc )
 								cc = cc * 100.0f;
 								break;
 							default:
-								//TODO: something useful for other CCs
+								ch->it->m_midiCCEnable->setValue(true);
+								objModel = ch->it->m_midiCCModel[ccid];
+								cc = cc * 127.0f;
 								break;
 						}
 
