@@ -38,6 +38,8 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QTextStream>
+#include <QPair>
+#include <QVector>
 
 #ifdef LMMS_BUILD_WIN32
 #include <windows.h>
@@ -322,6 +324,7 @@ int main( int argc, char * * argv )
 	bool runQApp = true;
 	QString fileToLoad, fileToImport, fileToSave, renderOut, profilerOutputFile, configFile;
 	QString importTemplateFile, importConfigFile;
+	QVector<QPair<QString, QString> > importFiles;
 
 	// first of two command-line parsing stages
 	for( int i = 1; i < argc; ++i )
@@ -684,6 +687,7 @@ int main( int argc, char * * argv )
 			}
 
 			fileToImport = QString::fromLocal8Bit( argv[i] );
+			importConfigFile = QString();
 
 			if (i + 1 != argc && QString(argv[i + 1]) == "--import-config")
 			{
@@ -691,6 +695,7 @@ int main( int argc, char * * argv )
 				importConfigFile = QString::fromLocal8Bit(argv[i + 2]);
 				i += 2;
 			}
+			importFiles.append({fileToImport, importConfigFile});
 		}
 		else if (arg == "--base-template")
 		{
@@ -829,7 +834,7 @@ int main( int argc, char * * argv )
 
 	EngineGuard guard(coreOnly);
 
-	if (!fileToImport.isEmpty() && coreOnly)
+	if (!importFiles.isEmpty() && coreOnly)
 	{
 		if (!importTemplateFile.isEmpty())
 		{
@@ -837,7 +842,10 @@ int main( int argc, char * * argv )
 			Engine::getSong()->loadProject(importTemplateFile);
 			printf("Done\n");
 		}
-		ImportFilter::import(fileToImport, Engine::getSong(), JsonDataFile::fromFile(importConfigFile).value());
+		for (auto importFilePair: importFiles)
+		{
+			ImportFilter::import(importFilePair.first, Engine::getSong(), JsonDataFile::fromFile(importFilePair.second).value());
+		}
 	}
 
 	// if we have an output file for saving, just save it without starting the GUI
