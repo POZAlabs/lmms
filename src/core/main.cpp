@@ -322,6 +322,7 @@ int main( int argc, char * * argv )
 	bool renderLoop = false;
 	bool renderTracks = false;
 	bool runQApp = true;
+	bool noRenderInput = false;
 	QString fileToLoad, fileToImport, fileToSave, renderOut, profilerOutputFile, configFile;
 	QString importTemplateFile, importConfigFile;
 	QVector<QPair<QString, QString> > importFiles;
@@ -346,6 +347,10 @@ int main( int argc, char * * argv )
 		{
 			coreOnly = true;
 			runQApp = false;
+		}
+		else if (arg == "--import")
+		{
+			noRenderInput = true;
 		}
 		else if( arg == "--allowroot" )
 		{
@@ -475,16 +480,19 @@ int main( int argc, char * * argv )
 		else if( arg == "render" || arg == "--render" || arg == "-r" ||
 			arg == "rendertracks" || arg == "--rendertracks" )
 		{
-			++i;
-
-			if( i == argc )
+			if (!noRenderInput)
 			{
-				return noInputFileError();
+				++i;
+
+				if( i == argc )
+				{
+					return noInputFileError();
+				}
+
+
+				fileToLoad = QString::fromLocal8Bit( argv[i] );
+				renderOut = fileToLoad;
 			}
-
-
-			fileToLoad = QString::fromLocal8Bit( argv[i] );
-			renderOut = fileToLoad;
 		}
 		else if( arg == "--loop" || arg == "-l" )
 		{
@@ -705,7 +713,7 @@ int main( int argc, char * * argv )
 				return usageError("No file specified for import base template");
 			}
 
-			importTemplateFile = QString::fromLocal8Bit(argv[i]);
+			fileToLoad = importTemplateFile = QString::fromLocal8Bit(argv[i]);
 		}
 		else if (arg == "--save-as")
 		{
