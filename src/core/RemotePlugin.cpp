@@ -245,8 +245,17 @@ bool RemotePlugin::init(const QString &pluginExecutable,
 	pollin.fd = m_server;
 	pollin.events = POLLIN;
 
-	switch ( poll( &pollin, 1, 30000 ) )
+	int retryCount = 0;
+	int result;
+	do
 	{
+		if (retryCount > 0)
+		{
+			qWarning("Retrying to connect to the remote plugin...");
+		}
+		result = poll(&pollin, 1, 30000);
+		switch (result)
+		{
 		case -1:
 			qWarning( "Unexpected poll error." );
 			break;
@@ -261,7 +270,9 @@ bool RemotePlugin::init(const QString &pluginExecutable,
 			{
 				qWarning( "Unexpected socket error." );
 			}
-	}
+		}
+		++retryCount;
+	} while (result == -1 && retryCount <= 3);
 #endif
 
 	resizeSharedProcessingMemory();
