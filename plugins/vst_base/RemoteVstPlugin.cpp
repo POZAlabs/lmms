@@ -2083,7 +2083,7 @@ bool RemoteVstPlugin::setupMessageWindow()
 	}
 
 	__MessageHwnd = CreateWindowEx( 0, "LVSL", "dummy",
-						0, 0, 0, 0, 0, NULL, NULL,
+						0, 0, 0, 0, 0, HWND_MESSAGE, NULL,
 								hInst, NULL );
 	// install GUI update timer
 	SetTimer( __MessageHwnd, 1000, 50, NULL );
