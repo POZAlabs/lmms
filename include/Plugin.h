@@ -297,11 +297,11 @@ protected:
 	virtual PluginView* instantiateView( QWidget * ) = 0;
 	void collectErrorForUI( QString errMsg );
 
+	Descriptor::SubPluginFeatures::Key m_key;
+
 
 private:
 	const Descriptor * m_descriptor;
-
-	Descriptor::SubPluginFeatures::Key m_key;
 
 	// pointer to instantiation-function in plugin
 	typedef Plugin * ( * InstantiationHook )( Model * , void * );

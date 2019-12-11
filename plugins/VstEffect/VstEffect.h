@@ -54,6 +54,8 @@ public:
 		return m_plugin->name();
 	}
 
+	void loadFile(const QString & file) override;
+	void loadPluginPresetFile(const QString & file) override;
 
 private:
 	void openPlugin( const QString & _plugin );
@@ -61,7 +63,6 @@ private:
 
 	QSharedPointer<VstPlugin> m_plugin;
 	QMutex m_pluginMutex;
-	EffectKey m_key;
 
 	VstEffectControls m_vstControls;
 

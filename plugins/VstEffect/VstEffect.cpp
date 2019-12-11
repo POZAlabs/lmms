@@ -58,9 +58,9 @@ VstEffect::VstEffect( Model * _parent,
 			const Descriptor::SubPluginFeatures::Key * _key ) :
 	Effect( &vsteffect_plugin_descriptor, _parent, _key ),
 	m_pluginMutex(),
-	m_key( *_key ),
 	m_vstControls( this )
 {
+	m_key = *_key;
 	if( !m_key.attributes["file"].isEmpty() )
 	{
 		openPlugin( m_key.attributes["file"] );
@@ -148,6 +148,22 @@ void VstEffect::openPlugin( const QString & _plugin )
 	delete tf;
 
 	m_key.attributes["file"] = _plugin;
+}
+
+
+
+
+void VstEffect::loadFile(const QString & file)
+{
+	openPlugin(file);
+}
+
+
+
+
+void VstEffect::loadPluginPresetFile(const QString& file)
+{
+	m_plugin->openPreset(file);
 }
 
 

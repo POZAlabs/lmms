@@ -59,8 +59,8 @@ Plugin::Plugin(const Descriptor * descriptor, Model * parent, const
 		Descriptor::SubPluginFeatures::Key* key) :
 	Model(parent),
 	JournallingObject(),
-	m_descriptor(descriptor),
-	m_key(key ? *key : Descriptor::SubPluginFeatures::Key(m_descriptor))
+	m_key(key ? *key : Descriptor::SubPluginFeatures::Key(m_descriptor)),
+	m_descriptor(descriptor)
 {
 	if( m_descriptor == NULL )
 	{
