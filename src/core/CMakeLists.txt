@@ -65,6 +65,7 @@ set(LMMS_SRCS
 	core/SampleBuffer.cpp
 	core/SamplePlayHandle.cpp
 	core/SampleRecordHandle.cpp
+	core/ScriptPlugin.cpp
 	core/SerializingObject.cpp
 	core/Song.cpp
 	core/TempoSyncKnobModel.cpp

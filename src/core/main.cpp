@@ -70,6 +70,7 @@
 #include "MainWindow.h"
 #include "MixHelpers.h"
 #include "OutputSettings.h"
+#include "ScriptPlugin.h"
 #include "ProjectRenderer.h"
 #include "RenderManager.h"
 #include "Song.h"
@@ -323,9 +324,11 @@ int main( int argc, char * * argv )
 	bool renderTracks = false;
 	bool runQApp = true;
 	bool noRenderInput = false;
+	// bool runScript = false;
 	QString fileToLoad, fileToImport, fileToSave, renderOut, profilerOutputFile, configFile;
 	QString importTemplateFile, importConfigFile;
 	QVector<QPair<QString, QString> > importFiles;
+	QString scriptProvider, scriptName, scriptContent;
 
 	// first of two command-line parsing stages
 	for( int i = 1; i < argc; ++i )
@@ -347,6 +350,11 @@ int main( int argc, char * * argv )
 		{
 			coreOnly = true;
 			runQApp = false;
+		}
+		else if (arg == "--script-file" || arg == "--eval" )
+		{
+			coreOnly = true;
+			runQApp = false; // TODO is this right?
 		}
 		else if (arg == "--import")
 		{
@@ -748,6 +756,39 @@ int main( int argc, char * * argv )
 
 			configFile = QString::fromLocal8Bit( argv[i] );
 		}
+		else if (arg == "--script-file")
+		{
+			++i;
+
+			if (i == argc)
+			{
+				return usageError("No script file specified");
+			}
+
+			scriptName = QString::fromLocal8Bit(argv[i]);
+		}
+		else if (arg == "--eval")
+		{
+			++i;
+
+			if (i == argc)
+			{
+				return usageError("No script to evaluate");
+			}
+
+			scriptContent = QString::fromLocal8Bit(argv[i]);
+		}
+		else if (arg == "--script-provider")
+		{
+			++i;
+
+			if (i == argc)
+			{
+				return usageError("No script provider specified");
+			}
+
+			scriptProvider = QString::fromLocal8Bit(argv[i]);
+		}
 		else
 		{
 			if( argv[i][0] == '-' )
@@ -860,6 +901,32 @@ int main( int argc, char * * argv )
 	if (!fileToSave.isEmpty())
 	{
 		ret = Engine::getSong()->saveProjectFile(fileToSave) ? EXIT_SUCCESS : EXIT_FAILURE;
+	}
+	else if (!scriptName.isEmpty() || !scriptContent.isEmpty())
+	{
+		// run scripts
+		if (scriptProvider.isEmpty())
+		{
+			qCritical("Scripting was requested, but no script provider was provided.");
+			return EXIT_FAILURE;
+		}
+		Plugin * p = Plugin::instantiate(scriptProvider, nullptr, nullptr);
+		ScriptPlugin * scripter;
+		if (!p)
+		{
+			qCritical().noquote() << QStringLiteral("Can't find the script provider \"%1\".").arg(scriptProvider);
+			return EXIT_FAILURE;
+		}
+		else if (p->type() != Plugin::Scripting || !(scripter = dynamic_cast<ScriptPlugin *>(p)))
+		{
+			qCritical().noquote() << QStringLiteral("\"%1\" is not a scripting plugin.").arg(scriptProvider);
+			return EXIT_FAILURE;
+		}
+		qDebug().noquote() << QStringLiteral("Script plugin \"%1\" is loaded").arg(scriptProvider);
+		// TODO
+		scripter->evaluateScript(scriptName, scriptContent);
+		delete scripter;
+		scripter = nullptr;
 	}
 	// if we have an output file for rendering, just render the song
 	// without starting the GUI

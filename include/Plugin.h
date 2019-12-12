@@ -75,6 +75,7 @@ public:
 		Tool,		// additional tool (level-meter etc)
 		Library,	// simple library holding a code-base for
 				// several other plugins (e.g. VST-support)
+		Scripting,	// scripting service providers
 		Other,
 		Undefined = 255
 	} ;
