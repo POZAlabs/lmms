@@ -721,7 +721,7 @@ int main( int argc, char * * argv )
 				return usageError("No file specified for import base template");
 			}
 
-			fileToLoad = importTemplateFile = QString::fromLocal8Bit(argv[i]);
+			importTemplateFile = QString::fromLocal8Bit(argv[i]);
 		}
 		else if (arg == "--save-as")
 		{
