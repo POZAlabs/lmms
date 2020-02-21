@@ -817,6 +817,10 @@ int main( int argc, char * * argv )
 	{
 		fileCheck(importConfigFile);
 	}
+	if (!scriptName.isEmpty())
+	{
+		fileCheck(scriptName);
+	}
 
 	ConfigManager::inst()->loadConfigFile(configFile);
 
@@ -922,11 +926,26 @@ int main( int argc, char * * argv )
 			qCritical().noquote() << QStringLiteral("\"%1\" is not a scripting plugin.").arg(scriptProvider);
 			return EXIT_FAILURE;
 		}
-		qDebug().noquote() << QStringLiteral("Script plugin \"%1\" is loaded").arg(scriptProvider);
-		// TODO
+		qDebug().noquote() << QStringLiteral("Script plugin \"%1\" is loaded.").arg(scriptProvider);
+		if (scriptContent.isEmpty())
+		{
+			QFile file(scriptName);
+			if (!file.open(QIODevice::ReadOnly))
+			{
+				qCritical().noquote() << QStringLiteral("Failed to load script\"%1\".").arg(scriptName);
+				return EXIT_FAILURE;
+			}
+			scriptContent = QString::fromUtf8(file.readAll()); // TODO allow specifying encoding
+		}
+		else if (scriptName.isEmpty())
+		{
+			scriptName = QStringLiteral("<stdin>");
+		}
 		scripter->evaluateScript(scriptName, scriptContent);
 		delete scripter;
 		scripter = nullptr;
+		// FIXME what if scripting fails?
+		ret = EXIT_SUCCESS;
 	}
 	// if we have an output file for rendering, just render the song
 	// without starting the GUI
