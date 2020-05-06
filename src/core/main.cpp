@@ -356,7 +356,7 @@ int main( int argc, char * * argv )
 			coreOnly = true;
 			runQApp = false; // TODO is this right?
 		}
-		else if (arg == "--import")
+		else if (arg == "--no-render-input")
 		{
 			noRenderInput = true;
 		}
@@ -789,6 +789,10 @@ int main( int argc, char * * argv )
 
 			scriptProvider = QString::fromLocal8Bit(argv[i]);
 		}
+		else if (arg == "--no-render-input")
+		{
+			// nothing to do
+		}
 		else
 		{
 			if( argv[i][0] == '-' )
@@ -947,10 +951,12 @@ int main( int argc, char * * argv )
 		// FIXME what if scripting fails?
 		ret = EXIT_SUCCESS;
 	}
+
 	// if we have an output file for rendering, just render the song
 	// without starting the GUI
-	else if( !renderOut.isEmpty() )
+	if( !renderOut.isEmpty() )
 	{
+		runQApp = true; // To allow rendering right after running script plugins
 		if (!fileToLoad.isEmpty())
 		{
 			printf("Loading project...\n");
