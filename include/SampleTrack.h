@@ -42,7 +42,7 @@ class TrackLabelButton;
 class QLineEdit;
 
 
-class SampleTCO : public TrackContentObject
+class LMMS_EXPORT SampleTCO : public TrackContentObject
 {
 	Q_OBJECT
 	mapPropertyFromModel(bool,isRecord,setRecord,m_recordModel);
