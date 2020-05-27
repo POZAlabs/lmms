@@ -220,7 +220,7 @@ void AudioMixMaster::evaluateScript(const QString & scriptName, const QString & 
 			}
 			inputIndexes[curIndexInGroup] = extraInfo.inputIsBus ? extraInfo.inputIndex : -2;
 			outputIndexes[curIndexInGroup] = extraInfo.outputIsBus ? extraInfo.outputIndex : -3;
-			if (!extraInfo.outputIsBus/* && extraInfo.outputIndex == 0*/)
+			if (extraInfo.isRoot || (!extraInfo.outputIsBus && extraInfo.outputIndex == 0))
 			{
 				// send to master
 				Engine::fxMixer()->createChannelSend(curIndex, 0);
