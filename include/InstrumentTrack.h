@@ -38,6 +38,8 @@
 #include "Pitch.h"
 #include "Plugin.h"
 #include "Track.h"
+#include "Midi.h"
+#include "MidiCCRackView.h"
 
 
 
@@ -221,6 +223,9 @@ public:
 
 	void autoAssignMidiDevice( bool );
 
+	BoolModel *m_midiCCEnable;
+	FloatModel *m_midiCCModel[MidiControllerCount];
+
 signals:
 	void instrumentChanged();
 	void midiNoteOn( const Note& );
@@ -229,6 +234,8 @@ signals:
 	void newNote();
 	void endNote();
 
+public slots:
+	void processCCEvent(int controller);
 
 protected:
 	QString nodeName() const override
@@ -339,6 +346,7 @@ protected:
 
 private slots:
 	void toggleInstrumentWindow( bool _on );
+	void toggleMidiCCRack();
 	void activityIndicatorPressed();
 	void activityIndicatorReleased();
 
@@ -365,6 +373,8 @@ private:
 
 	QAction * m_midiInputAction;
 	QAction * m_midiOutputAction;
+
+	MidiCCRackView * m_midiCCRackView;
 
 	QPoint m_lastPos;
 

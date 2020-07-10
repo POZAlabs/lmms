@@ -74,6 +74,7 @@
 #include "StringPairDrag.h"
 #include "TrackContainerView.h"
 #include "TrackLabelButton.h"
+#include "MidiCCRackView.h"
 
 
 const char * volume_help = QT_TRANSLATE_NOOP( "InstrumentTrack",
@@ -126,6 +127,19 @@ InstrumentTrack::InstrumentTrack( TrackContainer* tc ) :
 	}
 
 
+	// Initialize the m_midiCCEnabled variable, but it's actually going to be connected
+	// to a LedButton
+	m_midiCCEnable = new BoolModel( false, NULL, "Enable/Disable MIDI CC" );
+
+	// Initialize the MIDI CC controller models and connect them to the method that processes
+	// the midi cc events
+	for( int i = 0; i < MidiControllerCount; ++i )
+	{
+		m_midiCCModel[i] = new FloatModel(0.0f, 0.0f, 127.0f, 1.0f, NULL, QString("CC Controller ") + QString::number(i));
+		connect( m_midiCCModel[i], &FloatModel::dataChanged,
+			this, [this, i]{ processCCEvent(i); }, Qt::DirectConnection );
+	}
+
 	setName( tr( "Default preset" ) );
 
 	connect( &m_baseNoteModel, SIGNAL( dataChanged() ),
@@ -150,6 +164,14 @@ int InstrumentTrack::baseNote() const
 
 InstrumentTrack::~InstrumentTrack()
 {
+	// Remove the MIDI CC models
+	delete m_midiCCEnable;
+
+	for( int i = 0; i < MidiControllerCount; ++i )
+	{
+		delete m_midiCCModel[i];
+	}
+
 	// De-assign midi device
 	if (m_hasAutoMidiDev)
 	{
@@ -249,9 +271,29 @@ MidiEvent InstrumentTrack::applyMasterKey( const MidiEvent& event )
 
 
 
+void InstrumentTrack::processCCEvent(int controller)
+{
+	// Does nothing if the LED is disabled
+	if( !m_midiCCEnable->value() )
+	{
+		return;
+	}
+
+	uint8_t channel = static_cast<uint8_t>( midiPort()->realOutputChannel() );
+	uint16_t cc = static_cast<uint16_t>( controller );
+	uint16_t value = static_cast<uint16_t>( m_midiCCModel[ controller ]->value() );
+
+	// Process the MIDI CC event as an input event but with fromHardware set to false
+	// so we can know LMMS generated the event, not a controller.
+	processInEvent( MidiEvent( MidiControlChange, channel, cc, value, NULL, false ) );
+}
+
+
+
+
 void InstrumentTrack::processInEvent( const MidiEvent& event, const MidiTime& time, f_cnt_t offset )
 {
-	if( Engine::getSong()->isExporting() )
+	if( Engine::getSong()->isExporting() && event.fromHardware() )
 	{
 		return;
 	}
@@ -380,7 +422,9 @@ void InstrumentTrack::processInEvent( const MidiEvent& event, const MidiTime& ti
 			break;
 	}
 
-	if( eventHandled == false && instrument()->handleMidiEvent( event, time, offset ) == false )
+	// If the event wasn't handled, check if there's a loaded instrument and if so send the
+	// event to it. If it returns false means the instrument didn't handle the event, so we trigger a warning.
+	if( eventHandled == false && !( instrument() && instrument()->handleMidiEvent( event, time, offset ) ) )
 	{
 		qWarning( "InstrumentTrack: unhandled MIDI event %d", event.type() );
 	}
@@ -756,6 +800,15 @@ void InstrumentTrack::saveTrackSpecificSettings( QDomDocument& doc, QDomElement 
 	m_baseNoteModel.saveSettings( doc, thisElement, "basenote" );
 	m_useMasterPitchModel.saveSettings( doc, thisElement, "usemasterpitch");
 
+	// Save MIDI CC stuff
+	m_midiCCEnable->saveSettings( doc, thisElement, "enablecc" );
+	QDomElement midiCC = doc.createElement( "midicontrollers" );
+	thisElement.appendChild( midiCC );
+	for( int i = 0; i < MidiControllerCount; ++i )
+	{
+		m_midiCCModel[i]->saveSettings( doc, midiCC, "cc" + QString::number(i) );
+	}
+
 	if( m_instrument != NULL )
 	{
 		QDomElement i = doc.createElement( "instrument" );
@@ -814,6 +867,10 @@ void InstrumentTrack::loadTrackSpecificSettings( const QDomElement & thisElement
 	// clear effect-chain just in case we load an old preset without FX-data
 	m_audioPort.effects()->clear();
 
+	// We set MIDI CC enable to false so the knobs don't trigger MIDI CC events while
+	// they are being loaded. After all knobs are loaded we load the right value of m_midiCCEnable.
+	m_midiCCEnable->setValue(false);
+
 	QDomNode node = thisElement.firstChild();
 	while( !node.isNull() )
 	{
@@ -858,6 +915,13 @@ void InstrumentTrack::loadTrackSpecificSettings( const QDomElement & thisElement
 					emit instrumentChanged();
 				}
 			}
+			else if(node.nodeName() == "midicontrollers")
+			{
+				for( int i = 0; i < MidiControllerCount; ++i )
+				{
+					m_midiCCModel[i]->loadSettings( node.toElement(), "cc" + QString::number(i) );
+				}
+			}
 			// compat code - if node-name doesn't match any known
 			// one, we assume that it is an instrument-plugin
 			// which we'll try to load
@@ -878,6 +942,10 @@ void InstrumentTrack::loadTrackSpecificSettings( const QDomElement & thisElement
 		}
 		node = node.nextSibling();
 	}
+
+	// Load the right value of m_midiCCEnable
+	m_midiCCEnable->loadSettings( thisElement, "enablecc" );
+
 	updatePitchRange();
 	unlock();
 }
@@ -1013,10 +1081,12 @@ InstrumentTrackView::InstrumentTrackView( InstrumentTrack * _it, TrackContainerV
 	m_panningKnob = new Knob( knobSmall_17, getTrackSettingsWidget(),
 							tr( "Panning" ) );
 	m_panningKnob->setModel( &_it->m_panningModel );
-    m_panningKnob->setHintText( tr( "Panning:" ), "%" );
+	m_panningKnob->setHintText( tr( "Panning:" ), "%" );
 	m_panningKnob->move( widgetWidth-24, 2 );
 	m_panningKnob->setLabel( tr( "PAN" ) );
 	m_panningKnob->show();
+
+	m_midiCCRackView = new MidiCCRackView( _it );
 
 	m_midiMenu = new QMenu( tr( "MIDI" ), this );
 
@@ -1053,6 +1123,10 @@ InstrumentTrackView::InstrumentTrackView( InstrumentTrack * _it, TrackContainerV
 	m_midiInputAction->setText( tr( "Input" ) );
 	m_midiOutputAction->setText( tr( "Output" ) );
 
+	QAction *midiRackAction = m_midiMenu->addAction( "Open/Close MIDI CC Rack" );
+	connect( midiRackAction, SIGNAL( triggered() ),
+		this, SLOT( toggleMidiCCRack() ) );
+
 	m_activityIndicator = new FadeButton( QApplication::palette().color( QPalette::Active,
 							QPalette::Background),
 						QApplication::palette().color( QPalette::Active,
@@ -1084,6 +1158,22 @@ InstrumentTrackView::~InstrumentTrackView()
 
 	delete model()->m_midiPort.m_readablePortsMenu;
 	delete model()->m_midiPort.m_writablePortsMenu;
+}
+
+
+
+
+void InstrumentTrackView::toggleMidiCCRack()
+{
+	if( m_midiCCRackView->parentWidget()->isVisible() )
+	{
+		m_midiCCRackView->parentWidget()->hide();
+	}
+	else
+	{
+		m_midiCCRackView->parentWidget()->show();
+		m_midiCCRackView->show();
+	}
 }
 
 
