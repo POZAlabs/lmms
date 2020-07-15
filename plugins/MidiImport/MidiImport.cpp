@@ -31,6 +31,7 @@
 #include <QProgressDialog>
 
 #include <sstream>
+#include <map>
 #include <memory>
 
 #include "MidiImport.h"
@@ -53,6 +54,7 @@
 #include "plugin_export.h"
 
 #include "portsmf/allegro.h"
+#include "portsmf/algsmfrd_internal.h"
 
 #define makeID(_c0, _c1, _c2, _c3) \
 		( 0 | \
@@ -217,10 +219,11 @@ class smfTrackMapping
 public:
 	smfTrackMapping() :
 #ifdef LMMS_HAVE_FLUIDSYNTH
-		instrumentName(QStringLiteral("sf2player"))
+		instrumentName(QStringLiteral("sf2player")),
 #else
-		instrumentName(QStringLiteral("patman"))
+		instrumentName(QStringLiteral("patman")),
 #endif
+		fxChannel(0)
 	{}
 
 	void parse(QJsonObject mapping)
@@ -261,7 +264,6 @@ public:
 	Instrument * it_inst;
 	bool isSF2; 
 	bool hasNotes;
-	QString trackName;
 	
 	smfMidiChannel * create(TrackContainer* tc, QString tn, const smfTrackMapping& mapping)
 	{
@@ -296,8 +298,7 @@ public:
 			{
 				it_inst->loadPluginPresetFile(mapping.pluginPresetFileName);
 			}
-			trackName = tn;
-			if( trackName != "") {
+			if( tn != "") {
 				it->setName( tn );
 			}
 			// General MIDI default
@@ -361,7 +362,10 @@ bool MidiImport::readSMF( TrackContainer* tc )
 	QByteArray arr = readAllData();
 	stream.str(std::string(arr.constData(), arr.size()));
 
-	Alg_seq_ptr seq = new Alg_seq(stream, true);
+	Alg_seq_ptr seq = new Alg_seq();
+	seq->channel_offset_per_track = 4096; // to separate tracks
+	alg_smf_read(stream, seq);
+
 	seq->convert_to_beats();
 
 	if (gui)
@@ -377,11 +381,10 @@ bool MidiImport::readSMF( TrackContainer* tc )
 		pd->setMaximum( seq->tracks()  + preTrackSteps );
 		pd->setValue( 1 );
 	}
-	
-	// 128 CC + Pitch Bend
-	smfMidiCC ccs[129];
-	smfMidiChannel chs[256];
-	smfTrackMapping mappings[256];
+
+	smfMidiCC ccs[129]; // 128 CC + Pitch Bend
+	std::map<int, smfMidiChannel> chs;
+	std::map<int, smfTrackMapping> mappings;
 
 	MeterModel & timeSigMM = Engine::getSong()->getTimeSigModel();
 	AutomationTrack * nt = dynamic_cast<AutomationTrack*>(
@@ -407,7 +410,7 @@ bool MidiImport::readSMF( TrackContainer* tc )
 	for (auto mapping : m_settings.value("mapping").toArray())
 	{
 		int channel = mapping.toObject().value("channel").toInt() - 1;
-		if (channel >= 0 && channel < 256)
+		if (channel >= 0)
 		{
 			mappings[channel].parse(mapping.toObject());
 		}
@@ -508,7 +511,7 @@ bool MidiImport::readSMF( TrackContainer* tc )
                     printf( "\n" );
 				}
 			}
-			else if( evt->is_note() && evt->chan < 256 )
+			else if( evt->is_note() )
 			{
 				smfMidiChannel * ch = chs[evt->chan].create(tc, trackName, mappings[evt->chan]);
 				Alg_note_ptr noteEvt = dynamic_cast<Alg_note_ptr>( evt );
@@ -519,7 +522,7 @@ bool MidiImport::readSMF( TrackContainer* tc )
 						noteEvt->get_identifier() + pitchCorrection,
 						noteEvt->get_loud() * (200.f / 127.f)); // Map from MIDI velocity to LMMS volume
 				ch->addNote( n );
-				
+
 			}
 			
 			else if( evt->is_update() )
@@ -614,6 +617,11 @@ bool MidiImport::readSMF( TrackContainer* tc )
 						}
 					}
 				}
+                else if (update == "tracknames" && evt->get_update_type() == 's')
+                {
+					const char * name = evt->get_string_value();
+					if (name) {ch->it->setName(name);}
+				}
 				else {
 					printf("Unhandled update: %d %d %f %s\n", (int) evt->chan, 
 							evt->get_type_code(), evt->time, evt->get_attribute() );
@@ -625,8 +633,9 @@ bool MidiImport::readSMF( TrackContainer* tc )
 	delete seq;
 	
 	
-	for( int c=0; c < 256; ++c )
+	for (auto channelPair : chs)
 	{
+		const auto c = channelPair.first;
 		if (chs[c].hasNotes)
 		{
 			chs[c].splitPatterns();
@@ -640,6 +649,7 @@ bool MidiImport::readSMF( TrackContainer* tc )
 		}
 	}
 
+	// FIXME this can be 9+alpha, or sometimes unable to detect
 	// Set channel 10 to drums as per General MIDI's orders
 	if( chs[9].hasNotes && chs[9].it_inst && chs[9].isSF2 )
 	{
