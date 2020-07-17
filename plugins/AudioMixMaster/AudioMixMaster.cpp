@@ -31,6 +31,7 @@
 #include "EffectChain.h"
 #include "Engine.h"
 #include "FxMixer.h"
+#include "ImportFilter.h"
 #include "SampleTrack.h"
 #include "Song.h"
 
@@ -278,6 +279,12 @@ void AudioMixMaster::evaluateScript(const QString & scriptName, const QString & 
 			// load the sample track
 			SampleTCO *stco = static_cast<SampleTCO*>(st->createTCO(MidiTime(0)));
 			stco->setSampleFile(sampleFile);
+		}
+
+		QString midiFile = currentInput["midifile"].toString();
+		if (!midiFile.isEmpty())
+		{
+			ImportFilter::import(midiFile, Engine::getSong(), currentInput["midiconfig"]);
 		}
 
 		numChannelsProcessed += numChannelsToAdd;
