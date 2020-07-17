@@ -385,6 +385,7 @@ bool MidiImport::readSMF( TrackContainer* tc )
 	smfMidiCC ccs[129]; // 128 CC + Pitch Bend
 	std::map<int, smfMidiChannel> chs;
 	std::map<int, smfTrackMapping> mappings;
+	smfTrackMapping defaultMapping;
 
 	MeterModel & timeSigMM = Engine::getSong()->getTimeSigModel();
 	AutomationTrack * nt = dynamic_cast<AutomationTrack*>(
@@ -414,7 +415,14 @@ bool MidiImport::readSMF( TrackContainer* tc )
 		{
 			mappings[channel].parse(mapping.toObject());
 		}
+		else
+		{
+			defaultMapping.parse(mapping.toObject());
+		}
 	}
+	auto mappingForChannel = [&mappings, &defaultMapping](int index) {
+		return mappings.count(index) ? mappings[index] : defaultMapping;
+	};
 
 	// Time-sig changes
 	Alg_time_sigs * timeSigs = &seq->time_sig;
@@ -513,7 +521,7 @@ bool MidiImport::readSMF( TrackContainer* tc )
 			}
 			else if( evt->is_note() )
 			{
-				smfMidiChannel * ch = chs[evt->chan].create(tc, trackName, mappings[evt->chan]);
+				smfMidiChannel * ch = chs[evt->chan].create(tc, trackName, mappingForChannel(evt->chan));
 				Alg_note_ptr noteEvt = dynamic_cast<Alg_note_ptr>( evt );
 				int ticks = noteEvt->get_duration() * ticksPerBeat;
 				int pitchCorrection = ch->it_inst->flags() & Instrument::IsMidiBased ? 0 : -12;
@@ -527,7 +535,7 @@ bool MidiImport::readSMF( TrackContainer* tc )
 			
 			else if( evt->is_update() )
 			{
-				smfMidiChannel * ch = chs[evt->chan].create(tc, trackName, mappings[evt->chan]);
+				smfMidiChannel * ch = chs[evt->chan].create(tc, trackName, mappingForChannel(evt->chan));
 
 				double time = evt->time*ticksPerBeat;
 				QString update( evt->get_attribute() );
