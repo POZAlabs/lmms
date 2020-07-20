@@ -450,12 +450,12 @@ bool MidiImport::readSMF( TrackContainer* tc )
 			Alg_beat_ptr b = &(beats[i]);
 			double tempo = ( beats[i + 1].beat - b->beat ) /
 						   ( beats[i + 1].time - beats[i].time );
-			tap->putValue( b->beat * ticksPerBeat, tempo * 60.0 );
+			tap->putValue( b->beat * ticksPerBeat, round(tempo * 60.0) );
 		}
 		if( timeMap->last_tempo_flag )
 		{
 			Alg_beat_ptr b = &( beats[beats.len - 1] );
-			tap->putValue( b->beat * ticksPerBeat, timeMap->last_tempo * 60.0 );
+			tap->putValue( b->beat * ticksPerBeat, round(timeMap->last_tempo * 60.0) );
 		}
 	}
 
