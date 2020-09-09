@@ -164,32 +164,22 @@ void AudioMixMaster::evaluateScript(const QString & scriptName, const QString & 
 		}
 	};
 
-	int numChannelsProcessed = 0;
-	int curIndex = 1; // 0 is master
 
-	for (auto elem : inputs) // TODO
+	// override masterIndex if you want to route the output to other channels
+	auto processChannels = [&processEffects] (QJsonArray chs, int &curIndex, int masterIndex = 0)
 	{
-		if (!elem.isObject())
-		{
-			qWarning("Input descriptor is not an object.");
-			continue;
-		}
-
-		QJsonObject currentInput = elem.toObject();
-
-		// setup channels
-		QJsonArray chs = currentInput["channels"].toArray();
+		int beginIndex = curIndex;
 		int numChannelsToAdd = chs.size();
 		int curIndexInGroup = 0;
-		int rootIndexInGroup = -1;
+		int rootIndex = -1;
 		std::vector<int> inputIndexes, outputIndexes;
 		std::vector<std::tuple<int, int, float> > sends; // TODO use a struct if desired
 		inputIndexes.resize(numChannelsToAdd);
 		outputIndexes.resize(numChannelsToAdd);
 
 		qInfo("Processing %d FX channels...", numChannelsToAdd);
-		// Engine::fxMixer()->allocateChannelsTo(numChannelsProcessed + numChannelsToAdd);
-		for (int i = Engine::fxMixer()->numChannels(); i < numChannelsProcessed + numChannelsToAdd + 1; ++i)
+		// Engine::fxMixer()->allocateChannelsTo(beginIndex - 1 + numChannelsToAdd);
+		for (int i = Engine::fxMixer()->numChannels(); i < beginIndex + numChannelsToAdd; ++i)
 		{
 			Engine::fxMixer()->createChannel();
 
@@ -217,14 +207,15 @@ void AudioMixMaster::evaluateScript(const QString & scriptName, const QString & 
 			// handle routing
 			if (extraInfo.isRoot)
 			{
-				rootIndexInGroup = curIndexInGroup;
+				rootIndex = curIndexInGroup + beginIndex;
 			}
 			inputIndexes[curIndexInGroup] = extraInfo.inputIsBus ? extraInfo.inputIndex : -2;
 			outputIndexes[curIndexInGroup] = extraInfo.outputIsBus ? extraInfo.outputIndex : -3;
+			// FIXME is this condition always right with internal routing?
 			if (extraInfo.isRoot || (!extraInfo.outputIsBus && extraInfo.outputIndex == 0))
 			{
 				// send to master
-				Engine::fxMixer()->createChannelSend(curIndex, 0);
+				Engine::fxMixer()->createChannelSend(curIndex, masterIndex);
 			}
 			QJsonArray sendsData = chData["sends"].toArray();
 			for (auto val2 : sendsData)
@@ -252,7 +243,7 @@ void AudioMixMaster::evaluateScript(const QString & scriptName, const QString & 
 			{
 				if (src != dst && outputIndexes[src] == inputIndexes[dst])
 				{
-					Engine::fxMixer()->createChannelSend(numChannelsProcessed + src + 1, numChannelsProcessed + dst + 1);
+					Engine::fxMixer()->createChannelSend(beginIndex + src, beginIndex + dst);
 				}
 			}
 		}
@@ -262,19 +253,56 @@ void AudioMixMaster::evaluateScript(const QString & scriptName, const QString & 
 			{
 				if (std::get<1>(sendInfo) == inputIndexes[dst])
 				{
-					Engine::fxMixer()->createChannelSend(std::get<0>(sendInfo), numChannelsProcessed + dst + 1, std::get<2>(sendInfo));
+					Engine::fxMixer()->createChannelSend(std::get<0>(sendInfo), beginIndex + dst, std::get<2>(sendInfo));
 				}
 			}
 		}
+
+		curIndex += numChannelsToAdd;
+		return rootIndex;
+	};
+
+	// now process channels
+	int curIndex = 1; // 0 is master
+	int masterIndex = 0;
+
+	// master channel
+	if (obj["master"].isObject())
+	{
+		// using CST
+		QJsonObject masterChannel = obj["master"].toObject();
+		processEffects(masterChannel["effects"].toArray(), 0);
+	}
+	else if (obj["master"].isArray())
+	{
+		// using PATCH
+		masterIndex = processChannels(obj["master"].toArray(), curIndex, 0);
+	}
+	else if (!obj["master"].isNull())
+	{
+		qWarning("Invalid type for master channel info");
+	}
+
+	// others for inputs
+	for (auto elem : inputs) // TODO
+	{
+		if (!elem.isObject())
+		{
+			qWarning("Input descriptor is not an object.");
+			continue;
+		}
+
+		QJsonObject currentInput = elem.toObject();
+
+		// setup channels
+		int rootIndex = processChannels(currentInput["channels"].toArray(), curIndex, masterIndex);
 
 		QString sampleFile = currentInput["audiofile"].toString();
 		if (!sampleFile.isEmpty())
 		{
 			// add a sample track
 			SampleTrack *st = static_cast<SampleTrack*>(Track::create(Track::SampleTrack, Engine::getSong()));
-			st->effectChannelModel()->setInitValue(rootIndexInGroup >= 0
-					? numChannelsProcessed + rootIndexInGroup + 1
-					: 0);
+			st->effectChannelModel()->setInitValue(rootIndex);
 
 			// load the sample track
 			SampleTCO *stco = static_cast<SampleTCO*>(st->createTCO(MidiTime(0)));
@@ -286,13 +314,7 @@ void AudioMixMaster::evaluateScript(const QString & scriptName, const QString & 
 		{
 			ImportFilter::import(midiFile, Engine::getSong(), currentInput["midiconfig"]);
 		}
-
-		numChannelsProcessed += numChannelsToAdd;
 	}
-
-	// master channel
-	QJsonObject masterChannel = obj["master"].toObject();
-	processEffects(masterChannel["effects"].toArray(), 0);
 
 	QString fileToSave = obj["savefile"].toString();
 	if (!fileToSave.isEmpty())
