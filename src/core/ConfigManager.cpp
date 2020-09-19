@@ -570,6 +570,7 @@ void ConfigManager::saveConfigFile()
 	for(settingsMap::iterator it = m_settings.begin();
 						it != m_settings.end(); ++it)
 	{
+		if (it.key() == "tmp") { continue; }
 		QDomElement n = doc.createElement(it.key());
 		for(stringPairVector::iterator it2 = (*it).begin();
 						it2 != (*it).end(); ++it2)
