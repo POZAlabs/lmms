@@ -303,11 +303,16 @@ public:
 			}
 			// General MIDI default
 			it->pitchRangeModel()->setInitValue( 2 );
-			if (mapping.fxChannel <= Engine::fxMixer()->numChannels())
+			bool overrideFxChannel = false;
+			int fxOverrideChannel = ConfigManager::inst()->value("tmp", "midifxch").toInt(&overrideFxChannel);
+			if (overrideFxChannel && fxOverrideChannel >= 0 && fxOverrideChannel <= Engine::fxMixer()->numChannels())
+			{
+				it->effectChannelModel()->setInitValue(fxOverrideChannel);
+			}
+			else if (mapping.fxChannel <= Engine::fxMixer()->numChannels())
 			{
 				it->effectChannelModel()->setInitValue(mapping.fxChannel);
 			}
-
 			// Create a default pattern
 			p = dynamic_cast<Pattern*>(it->createTCO(0));
 		}
