@@ -27,6 +27,7 @@
 #include "embed.h"
 #include "plugin_export.h"
 
+#include "ConfigManager.h"
 #include "Effect.h"
 #include "EffectChain.h"
 #include "Engine.h"
@@ -80,6 +81,7 @@ AudioMixMaster::~AudioMixMaster()
 struct ExtraChannelInfo
 {
 	bool isRoot;
+	bool isSource;
 	bool isMuted;
 	bool isSolo;
 	int inputIndex;
@@ -95,6 +97,7 @@ ExtraChannelInfo parseExtraChannelInfo(const QJsonObject &obj)
 	return ExtraChannelInfo
 	{
 		.isRoot = obj["isRoot"].toBool(false),
+		.isSource = obj["isSource"].toBool(false),
 		.isMuted = obj["isMuted"].toBool(false),
 		.isSolo = obj["isSolo"].toBool(false),
 		.inputIndex = obj["inIdx"].toInt(-1),
@@ -172,6 +175,7 @@ void AudioMixMaster::evaluateScript(const QString & scriptName, const QString & 
 		int numChannelsToAdd = chs.size();
 		int curIndexInGroup = 0;
 		int rootIndex = -1;
+		int sourceIndex = -1;
 		std::vector<int> inputIndexes, outputIndexes;
 		std::vector<std::tuple<int, int, float> > sends; // TODO use a struct if desired
 		inputIndexes.resize(numChannelsToAdd);
@@ -208,6 +212,17 @@ void AudioMixMaster::evaluateScript(const QString & scriptName, const QString & 
 			if (extraInfo.isRoot)
 			{
 				rootIndex = curIndexInGroup + beginIndex;
+			}
+			if (extraInfo.isSource)
+			{
+				if (sourceIndex != -1)
+				{
+					qWarning("Multiple sources detected!");
+				}
+				else
+				{
+					sourceIndex = curIndexInGroup + beginIndex;
+				}
 			}
 			inputIndexes[curIndexInGroup] = extraInfo.inputIsBus ? extraInfo.inputIndex : -2;
 			outputIndexes[curIndexInGroup] = extraInfo.outputIsBus ? extraInfo.outputIndex : -3;
@@ -259,7 +274,7 @@ void AudioMixMaster::evaluateScript(const QString & scriptName, const QString & 
 		}
 
 		curIndex += numChannelsToAdd;
-		return rootIndex;
+		return sourceIndex != -1 ? sourceIndex : rootIndex;
 	};
 
 	// now process channels
@@ -295,14 +310,14 @@ void AudioMixMaster::evaluateScript(const QString & scriptName, const QString & 
 		QJsonObject currentInput = elem.toObject();
 
 		// setup channels
-		int rootIndex = processChannels(currentInput["channels"].toArray(), curIndex, masterIndex);
+		int sourceIndex = processChannels(currentInput["channels"].toArray(), curIndex, masterIndex);
 
 		QString sampleFile = currentInput["audiofile"].toString();
 		if (!sampleFile.isEmpty())
 		{
 			// add a sample track
 			SampleTrack *st = static_cast<SampleTrack*>(Track::create(Track::SampleTrack, Engine::getSong()));
-			st->effectChannelModel()->setInitValue(rootIndex);
+			st->effectChannelModel()->setInitValue(sourceIndex);
 
 			// load the sample track
 			SampleTCO *stco = static_cast<SampleTCO*>(st->createTCO(MidiTime(0)));
@@ -312,6 +327,7 @@ void AudioMixMaster::evaluateScript(const QString & scriptName, const QString & 
 		QString midiFile = currentInput["midifile"].toString();
 		if (!midiFile.isEmpty())
 		{
+			ConfigManager::inst()->setValue("tmp", "midifxch", QString::number(sourceIndex));
 			ImportFilter::import(midiFile, Engine::getSong(), currentInput["midiconfig"]);
 		}
 	}
