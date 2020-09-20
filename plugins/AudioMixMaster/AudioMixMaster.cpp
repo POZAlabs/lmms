@@ -88,6 +88,8 @@ struct ExtraChannelInfo
 	bool inputIsBus;
 	int outputIndex;
 	bool outputIsBus;
+	float gain;
+	float pan;
 };
 
 
@@ -103,7 +105,9 @@ ExtraChannelInfo parseExtraChannelInfo(const QJsonObject &obj)
 		.inputIndex = obj["inIdx"].toInt(-1),
 		.inputIsBus = obj["inIsBus"].toBool(false),
 		.outputIndex = obj["outIdx"].toInt(-1),
-		.outputIsBus = obj["outIsBus"].toBool(false)
+		.outputIsBus = obj["outIsBus"].toBool(false),
+		.gain = obj["gain"].toDouble(1.0),
+		.pan = obj["pan"].toDouble(0.0)
 	};
 }
 
@@ -202,6 +206,8 @@ void AudioMixMaster::evaluateScript(const QString & scriptName, const QString & 
 			QJsonObject chData = val.toObject();
 			ExtraChannelInfo extraInfo = parseExtraChannelInfo(chData);
 
+			// set volume, panning is not supported at this moment
+			Engine::fxMixer()->effectChannel(curIndex)->m_volumeModel.setValue(extraInfo.gain);
 			// set mute, ignoring solo
 			Engine::fxMixer()->effectChannel(curIndex)->m_muteModel.setValue(extraInfo.isMuted);
 
@@ -286,6 +292,9 @@ void AudioMixMaster::evaluateScript(const QString & scriptName, const QString & 
 	{
 		// using CST
 		QJsonObject masterChannel = obj["master"].toObject();
+		ExtraChannelInfo extraInfo = parseExtraChannelInfo(masterChannel);
+		// set volume and stuff
+		Engine::fxMixer()->effectChannel(0)->m_volumeModel.setValue(extraInfo.gain);
 		processEffects(masterChannel["effects"].toArray(), 0);
 	}
 	else if (obj["master"].isArray())
