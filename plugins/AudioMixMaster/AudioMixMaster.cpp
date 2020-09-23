@@ -278,9 +278,9 @@ void AudioMixMaster::evaluateScript(const QString & scriptName, const QString & 
 				}
 			}
 		}
-
-		curIndex += numChannelsToAdd;
-		return sourceIndex != -1 ? sourceIndex : rootIndex;
+		if (sourceIndex == -1) sourceIndex = rootIndex;
+		if (sourceIndex == -1) sourceIndex = 0;
+		return sourceIndex;
 	};
 
 	// now process channels
