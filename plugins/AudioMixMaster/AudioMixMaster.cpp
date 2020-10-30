@@ -351,7 +351,7 @@ void AudioMixMaster::evaluateScript(const QString & scriptName, const QString & 
 			return;
 		}
 	}
-	QCoreApplication::processEvents();
+	QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, obj["waittime"].toInt(0));
 	qInfo("Done.");
 }
 
