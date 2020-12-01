@@ -6,6 +6,8 @@
 #include "debug.h"
 #include <string>
 #include <fstream>
+#include <algorithm>
+#include <list>
 #include "allegro.h"
 #include "algsmfrd_internal.h"
 #include "mfmidi.h"
@@ -13,21 +15,12 @@
 
 using namespace std;
 
-typedef class Alg_pending {
-public:
-    Alg_note_ptr note;
-    class Alg_pending *next;
-    Alg_pending(Alg_note_ptr n, class Alg_pending *list) { 
-        note = n; next = list; }
-} *Alg_pending_ptr;
-
-
 class Alg_midifile_reader: public Midifile_reader {
 public:
     istream *file;
     Alg_seq_ptr seq;
     int divisions;
-    Alg_pending_ptr pending;
+    std::list<Alg_note_ptr> pending;
     Alg_track_ptr track;
     int track_number; // the number of the (current) track
     // chan is actual_channel + channel_offset_per_track * track_num +
@@ -41,7 +34,6 @@ public:
 
     Alg_midifile_reader(istream &f, Alg_seq_ptr new_seq) {
         file = &f;
-        pending = NULL;
         seq = new_seq;
         channel_offset_per_track = 0;
         channel_offset_per_port = 16;
@@ -99,11 +91,6 @@ protected:
 
 Alg_midifile_reader::~Alg_midifile_reader()
 {
-    while (pending) {
-        Alg_pending_ptr to_be_freed = pending;
-        pending = pending->next;
-        delete to_be_freed;
-    }
     finalize(); // free Mf reader memory
 }
 
@@ -201,7 +188,7 @@ void Alg_midifile_reader::Mf_on(int chan, int key, int vel)
         return;
     }
     Alg_note_ptr note = new Alg_note();
-    pending = new Alg_pending(note, pending);
+    pending.push_back(note);
     /*    trace("on: %d at %g\n", key, get_time()); */
     note->time = get_time();
     note->chan = chan + channel_offset + port * channel_offset_per_port;
@@ -217,19 +204,15 @@ void Alg_midifile_reader::Mf_on(int chan, int key, int vel)
 void Alg_midifile_reader::Mf_off(int chan, int key, int vel)
 {
     double time = get_time();
-    Alg_pending_ptr *p = &pending;
-    while (*p) {
-        if ((*p)->note->get_identifier() == key &&
-            (*p)->note->chan == 
-                    chan + channel_offset + port * channel_offset_per_port) {
-            (*p)->note->dur = time - (*p)->note->time;
-            // trace("updated %d dur %g\n", (*p)->note->key, (*p)->note->dur);
-            Alg_pending_ptr to_be_freed = *p;
-            *p = to_be_freed->next;
-            delete to_be_freed;
-        } else {
-            p = &((*p)->next);
-        }
+    auto it = std::find_if(pending.begin(), pending.end(), [=](Alg_note_ptr note){
+        return note->get_identifier() == key &&
+            note->chan == chan + channel_offset + port * channel_offset_per_port;
+    });
+    if (it != pending.end()) {
+        Alg_note_ptr note = *it;
+        note->dur = time - note->time;
+        pending.erase(it);
+        // trace("updated %d dur %g\n", note->key, note->dur);
     }
     meta_channel = -1;
 }
