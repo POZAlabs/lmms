@@ -38,9 +38,11 @@
 
 #include <QCoreApplication>
 #include <QDebug>
+#include <QElapsedTimer>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QThread>
 
 #include <tuple>
 #include <vector>
@@ -351,7 +353,18 @@ void AudioMixMaster::evaluateScript(const QString & scriptName, const QString & 
 			return;
 		}
 	}
-	QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents, obj["waittime"].toInt(0));
+	int waittime = obj["waittime"].toInt(0);
+	if (waittime)
+	{
+		qInfo("Waiting %dms...", waittime);
+		QElapsedTimer timer;
+		timer.start();
+		while (!timer.hasExpired(waittime))
+		{
+			QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+			QThread::msleep(20);
+		}
+	}
 	qInfo("Done.");
 }
 
