@@ -42,45 +42,14 @@
 
 
 VstSyncController::VstSyncController() :
-	m_syncData( NULL ),
-	m_shmID( -1 ),
-	m_shm( "/usr/bin/lmms" )
+	m_syncData( NULL )
 {
 	if( ConfigManager::inst()->value( "ui", "syncvstplugins" ).toInt() )
 	{
 		connect( Engine::mixer(), SIGNAL( sampleRateChanged() ), this, SLOT( updateSampleRate() ) );
 
-#ifdef USE_QT_SHMEM
-		if ( m_shm.create( sizeof( VstSyncData ) ) )
-		{
-			m_syncData = (VstSyncData*) m_shm.data();
-		}
-		else
-		{
-			qWarning() << QString( "Failed to allocate shared memory for VST sync: %1" ).arg( m_shm.errorString() );
-		}
-#else
-		key_t key; // make the key:
-		if( ( key = ftok( VST_SNC_SHM_KEY_FILE, 'R' ) ) == -1 )
-		{
-				qWarning( "VstSyncController: ftok() failed" );
-		}
-		else
-		{	// connect to shared memory segment
-			if( ( m_shmID = shmget( key, sizeof( VstSyncData ), 0644 | IPC_CREAT ) ) == -1 )
-			{
-				qWarning( "VstSyncController: shmget() failed" );
-			}
-			else
-			{		// attach segment
-				m_syncData = (VstSyncData *)shmat( m_shmID, 0, 0 );
-				if( m_syncData == (VstSyncData *)( -1 ) )
-				{
-					qWarning( "VstSyncController: shmat() failed" );
-				}
-			}
-		}
-#endif
+		key_t key = 0;
+		m_syncData = (VstSyncData*)createShmWithFreeKey(m_shm, sizeof(VstSyncData), key);
 	}
 	else
 	{
@@ -112,25 +81,6 @@ VstSyncController::~VstSyncController()
 	if( m_syncData->hasSHM == false )
 	{
 		delete m_syncData;
-	}
-	else
-	{
-#ifdef USE_QT_SHMEM
-		if( m_shm.data() )
-		{
-			// detach shared memory, delete it:
-			m_shm.detach();
-		}
-#else
-		if( shmdt( m_syncData ) != -1 )
-		{
-			shmctl( m_shmID, IPC_RMID, NULL );
-		}
-		else
-		{
-			qWarning( "VstSyncController: shmdt() failed" );
-		}
-#endif
 	}
 }
 

@@ -26,9 +26,7 @@
 #ifndef VST_SYNC_CONTROLLER_H
 #define VST_SYNC_CONTROLLER_H
 
-#include <QtCore/QObject>
-#include <QtCore/QSharedMemory>
-
+#include "IPCHelper.h"
 #include "VstSyncData.h"
 
 
@@ -68,6 +66,7 @@ public:
 
 	void update();
 
+	inline key_t sharedMemoryKey() const { return m_shm.key(); }
 
 private slots:
 	void updateSampleRate();
@@ -75,11 +74,7 @@ private slots:
 
 private:
 	VstSyncData* m_syncData;
-
-	int m_shmID;
-
-	QSharedMemory m_shm;
-
+	SharedMemory m_shm;
 };
 
 #endif

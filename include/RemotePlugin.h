@@ -27,8 +27,8 @@
 
 #include "MidiEvent.h"
 #include "VstSyncData.h"
+#include "IPCHelper.h"
 
-#include <atomic>
 #include <vector>
 #include <cstdio>
 #include <cstdlib>
@@ -37,379 +37,21 @@
 #include <cassert>
 
 
-#if !(defined(LMMS_HAVE_SYS_IPC_H) && defined(LMMS_HAVE_SEMAPHORE_H))
-#define SYNC_WITH_SHM_FIFO
-#define USE_QT_SEMAPHORES
-
-#ifdef LMMS_HAVE_PROCESS_H
-#include <process.h>
-#endif
-
-#include <QtCore/QtGlobal>
-#include <QtCore/QSystemSemaphore>
-#endif
-
-
-#ifdef LMMS_HAVE_SYS_SHM_H
-#include <sys/shm.h>
-
-#ifdef LMMS_HAVE_UNISTD_H
-#include <unistd.h>
-#endif
-#else
-#define USE_QT_SHMEM
-
-#include <QtCore/QtGlobal>
-#include <QtCore/QSharedMemory>
-
-#if !defined(LMMS_HAVE_SYS_TYPES_H) || defined(LMMS_BUILD_WIN32)
-typedef int32_t key_t;
-#endif
-#endif
-
-
-#ifdef LMMS_HAVE_LOCALE_H
-#include <locale.h>
-#endif
-
-#ifdef LMMS_HAVE_PTHREAD_H
-#include <pthread.h>
-#endif
-
-
+// Are we building remote plugin?
 #ifdef BUILD_REMOTE_PLUGIN_CLIENT
+// Remote plugin side
 #undef LMMS_EXPORT
 #define LMMS_EXPORT
 #define COMPILE_REMOTE_PLUGIN_BASE
 
-#ifndef SYNC_WITH_SHM_FIFO
-#include <sys/socket.h>
-#include <sys/un.h>
-#endif
-
-#else
+#else // BUILD_REMOTE_PLUGIN_CLIENT
+// LMMS/local plugin side
 #include "lmms_export.h"
-#include <QtCore/QMutex>
-#include <QtCore/QProcess>
-#include <QtCore/QThread>
+#include <QMutex>
+#include <QProcess>
+#include <QThread>
 
-#ifndef SYNC_WITH_SHM_FIFO
-#include <poll.h>
-#include <unistd.h>
-#endif
-
-#endif
-
-#ifdef SYNC_WITH_SHM_FIFO
-// sometimes we need to exchange bigger messages (e.g. for VST parameter dumps)
-// so set a usable value here
-const int SHM_FIFO_SIZE = 512*1024;
-
-
-// implements a FIFO inside a shared memory segment
-class shmFifo
-{
-	// need this union to handle different sizes of sem_t on 32 bit
-	// and 64 bit platforms
-	union sem32_t
-	{
-		int semKey;
-		char fill[32];
-	} ;
-	struct shmData
-	{
-		sem32_t dataSem;	// semaphore for locking this
-					// FIFO management data
-		sem32_t messageSem;	// semaphore for incoming messages
-		volatile int32_t startPtr; // current start of FIFO in memory
-		volatile int32_t endPtr;   // current end of FIFO in memory
-		char data[SHM_FIFO_SIZE];  // actual data
-	} ;
-
-public:
-	// constructor for master-side
-	shmFifo() :
-		m_invalid( false ),
-		m_master( true ),
-		m_shmKey( 0 ),
-#ifdef USE_QT_SHMEM
-		m_shmObj(),
-#else
-		m_shmID( -1 ),
-#endif
-		m_data( NULL ),
-		m_dataSem( QString() ),
-		m_messageSem( QString() ),
-		m_lockDepth( 0 )
-	{
-#ifdef USE_QT_SHMEM
-		do
-		{
-			m_shmObj.setKey( QString( "%1" ).arg( ++m_shmKey ) );
-			m_shmObj.create( sizeof( shmData ) );
-		} while( m_shmObj.error() != QSharedMemory::NoError );
-
-		m_data = (shmData *) m_shmObj.data();
-#else
-		while( ( m_shmID = shmget( ++m_shmKey, sizeof( shmData ),
-					IPC_CREAT | IPC_EXCL | 0600 ) ) == -1 )
-		{
-		}
-		m_data = (shmData *) shmat( m_shmID, 0, 0 );
-#endif
-		assert( m_data != NULL );
-		m_data->startPtr = m_data->endPtr = 0;
-		static int k = 0;
-		m_data->dataSem.semKey = ( getpid()<<10 ) + ++k;
-		m_data->messageSem.semKey = ( getpid()<<10 ) + ++k;
-		m_dataSem.setKey( QString::number( m_data->dataSem.semKey ),
-						1, QSystemSemaphore::Create );
-		m_messageSem.setKey( QString::number(
-						m_data->messageSem.semKey ),
-						0, QSystemSemaphore::Create );
-	}
-
-	// constructor for remote-/client-side - use _shm_key for making up
-	// the connection to master
-	shmFifo( key_t _shm_key ) :
-		m_invalid( false ),
-		m_master( false ),
-		m_shmKey( 0 ),
-#ifdef USE_QT_SHMEM
-		m_shmObj( QString::number( _shm_key ) ),
-#else
-		m_shmID( shmget( _shm_key, 0, 0 ) ),
-#endif
-		m_data( NULL ),
-		m_dataSem( QString() ),
-		m_messageSem( QString() ),
-		m_lockDepth( 0 )
-	{
-#ifdef USE_QT_SHMEM
-		if( m_shmObj.attach() )
-		{
-			m_data = (shmData *) m_shmObj.data();
-		}
-#else
-		if( m_shmID != -1 )
-		{
-			m_data = (shmData *) shmat( m_shmID, 0, 0 );
-		}
-#endif
-		assert( m_data != NULL );
-		m_dataSem.setKey( QString::number( m_data->dataSem.semKey ) );
-		m_messageSem.setKey( QString::number(
-						m_data->messageSem.semKey ) );
-	}
-
-	~shmFifo()
-	{
-		// master?
-		if( m_master )
-		{
-#ifndef USE_QT_SHMEM
-			shmctl( m_shmID, IPC_RMID, NULL );
-#endif
-		}
-#ifndef USE_QT_SHMEM
-		shmdt( m_data );
-#endif
-	}
-
-	inline bool isInvalid() const
-	{
-		return m_invalid;
-	}
-
-	void invalidate()
-	{
-		m_invalid = true;
-	}
-
-	// do we act as master (i.e. not as remote-process?)
-	inline bool isMaster() const
-	{
-		return m_master;
-	}
-
-	// recursive lock
-	inline void lock()
-	{
-		if( !isInvalid() && m_lockDepth.fetch_add( 1 ) == 0 )
-		{
-			m_dataSem.acquire();
-		}
-	}
-
-	// recursive unlock
-	inline void unlock()
-	{
-		if( m_lockDepth.fetch_sub( 1 ) <= 1 )
-		{
-			m_dataSem.release();
-		}
-	}
-
-	// wait until message-semaphore is available
-	inline void waitForMessage()
-	{
-		if( !isInvalid() )
-		{
-			m_messageSem.acquire();
-		}
-	}
-
-	// increase message-semaphore
-	inline void messageSent()
-	{
-		m_messageSem.release();
-	}
-
-
-	inline int32_t readInt()
-	{
-		int32_t i;
-		read( &i, sizeof( i ) );
-		return i;
-	}
-
-	inline void writeInt( const int32_t & _i )
-	{
-		write( &_i, sizeof( _i ) );
-	}
-
-	inline std::string readString()
-	{
-		const int len = readInt();
-		if( len )
-		{
-			char * sc = new char[len + 1];
-			read( sc, len );
-			sc[len] = 0;
-			std::string s( sc );
-			delete[] sc;
-			return s;
-		}
-		return std::string();
-	}
-
-
-	inline void writeString( const std::string & _s )
-	{
-		const int len = _s.size();
-		writeInt( len );
-		write( _s.c_str(), len );
-	}
-
-
-	inline bool messagesLeft()
-	{
-		if( isInvalid() )
-		{
-			return false;
-		}
-		lock();
-		const bool empty = ( m_data->startPtr == m_data->endPtr );
-		unlock();
-		return !empty;
-	}
-
-
-	inline int shmKey() const
-	{
-		return m_shmKey;
-	}
-
-
-private:
-	static inline void fastMemCpy( void * _dest, const void * _src,
-							const int _len )
-	{
-		// calling memcpy() for just an integer is obsolete overhead
-		if( _len == 4 )
-		{
-			*( (int32_t *) _dest ) = *( (int32_t *) _src );
-		}
-		else
-		{
-			memcpy( _dest, _src, _len );
-		}
-	}
-
-	void read( void * _buf, int _len )
-	{
-		if( isInvalid() )
-		{
-			memset( _buf, 0, _len );
-			return;
-		}
-		lock();
-		while( isInvalid() == false &&
-				_len > m_data->endPtr - m_data->startPtr )
-		{
-			unlock();
-#ifndef LMMS_BUILD_WIN32
-			usleep( 5 );
-#endif
-			lock();
-		}
-		fastMemCpy( _buf, m_data->data + m_data->startPtr, _len );
-		m_data->startPtr += _len;
-		// nothing left?
-		if( m_data->startPtr == m_data->endPtr )
-		{
-			// then reset to 0
-			m_data->startPtr = m_data->endPtr = 0;
-		}
-		unlock();
-	}
-
-	void write( const void * _buf, int _len )
-	{
-		if( isInvalid() || _len > SHM_FIFO_SIZE )
-		{
-			return;
-		}
-		lock();
-		while( _len > SHM_FIFO_SIZE - m_data->endPtr )
-		{
-			// if no space is left, try to move data to front
-			if( m_data->startPtr > 0 )
-			{
-				memmove( m_data->data,
-					m_data->data + m_data->startPtr,
-					m_data->endPtr - m_data->startPtr );
-				m_data->endPtr = m_data->endPtr -
-							m_data->startPtr;
-				m_data->startPtr = 0;
-			}
-			unlock();
-#ifndef LMMS_BUILD_WIN32
-			usleep( 5 );
-#endif
-			lock();
-		}
-		fastMemCpy( m_data->data + m_data->endPtr, _buf, _len );
-		m_data->endPtr += _len;
-		unlock();
-	}
-
-	volatile bool m_invalid;
-	bool m_master;
-	key_t m_shmKey;
-#ifdef USE_QT_SHMEM
-	QSharedMemory m_shmObj;
-#else
-	int m_shmID;
-#endif
-	shmData * m_data;
-	QSystemSemaphore m_dataSem;
-	QSystemSemaphore m_messageSem;
-	std::atomic_int m_lockDepth;
-
-} ;
-#endif
-
+#endif // BUILD_REMOTE_PLUGIN_CLIENT
 
 
 enum RemoteMessageIDs
@@ -526,14 +168,14 @@ public:
 	} ;
 
 #ifdef SYNC_WITH_SHM_FIFO
-	RemotePluginBase( shmFifo * _in, shmFifo * _out );
+	RemotePluginBase( ShmFifo * _in, ShmFifo * _out );
 #else
 	RemotePluginBase();
 #endif
 	virtual ~RemotePluginBase();
 
 #ifdef SYNC_WITH_SHM_FIFO
-	void reset( shmFifo *in, shmFifo *out )
+	void reset( ShmFifo *in, ShmFifo *out )
 	{
 		delete m_in;
 		delete m_out;
@@ -638,12 +280,12 @@ public:
 
 protected:
 #ifdef SYNC_WITH_SHM_FIFO
-	inline const shmFifo * in() const
+	inline const ShmFifo * in() const
 	{
 		return m_in;
 	}
 
-	inline const shmFifo * out() const
+	inline const ShmFifo * out() const
 	{
 		return m_out;
 	}
@@ -676,8 +318,8 @@ private:
 #endif
 
 #ifdef SYNC_WITH_SHM_FIFO
-	shmFifo * m_in;
-	shmFifo * m_out;
+	ShmFifo * m_in;
+	ShmFifo * m_out;
 #else
 	void read( void * _buf, int _len )
 	{
@@ -873,11 +515,7 @@ private:
 
 	QMutex m_commMutex;
 	bool m_splitChannels;
-#ifdef USE_QT_SHMEM
-	QSharedMemory m_shmObj;
-#else
-	int m_shmID;
-#endif
+	SharedMemory m_shmObj;
 	size_t m_shmSize;
 	float * m_shm;
 
@@ -906,14 +544,14 @@ class RemotePluginClient : public RemotePluginBase
 {
 public:
 #ifdef SYNC_WITH_SHM_FIFO
-	RemotePluginClient( key_t _shm_in, key_t _shm_out );
+	RemotePluginClient(key_t shmIn, key_t shmOut, key_t shmVstSync);
 #else
-	RemotePluginClient( const char * socketPath );
+	RemotePluginClient(const char * socketPath, key_t shmVstSync);
 #endif
 	virtual ~RemotePluginClient();
-#ifdef USE_QT_SHMEM
-	VstSyncData * getQtVSTshm();
-#endif
+
+	VstSyncData * getVSTshm();
+
 	virtual bool processMessage( const message & _m );
 
 	virtual void process( const sampleFrame * _in_buf,
@@ -987,10 +625,9 @@ private:
 	void setShmKey( key_t _key, int _size );
 	void doProcessing();
 
-#ifdef USE_QT_SHMEM
-	QSharedMemory m_shmObj;
-	QSharedMemory m_shmQtID;
-#endif
+	SharedMemory m_shmObj;
+	SharedMemory m_shmVstSync;
+
 	VstSyncData * m_vstSyncData;
 	float * m_shm;
 
@@ -1016,7 +653,7 @@ private:
 
 
 #ifdef SYNC_WITH_SHM_FIFO
-RemotePluginBase::RemotePluginBase( shmFifo * _in, shmFifo * _out ) :
+RemotePluginBase::RemotePluginBase( ShmFifo * _in, ShmFifo * _out ) :
 	m_in( _in ),
 	m_out( _out )
 #else
@@ -1184,16 +821,14 @@ RemotePluginBase::message RemotePluginBase::waitForMessage(
 
 
 #ifdef SYNC_WITH_SHM_FIFO
-RemotePluginClient::RemotePluginClient( key_t _shm_in, key_t _shm_out ) :
-	RemotePluginBase( new shmFifo( _shm_in ), new shmFifo( _shm_out ) ),
+RemotePluginClient::RemotePluginClient(key_t shmIn, key_t shmOut, key_t shmVstSync) :
+	RemotePluginBase(new ShmFifo(shmIn), new ShmFifo(shmOut)),
 #else
-RemotePluginClient::RemotePluginClient( const char * socketPath ) :
+RemotePluginClient::RemotePluginClient(const char * socketPath, key_t shmVstSync) :
 	RemotePluginBase(),
 #endif
-#ifdef USE_QT_SHMEM
 	m_shmObj(),
-	m_shmQtID( "/usr/bin/lmms" ),
-#endif
+	m_shmVstSync(shmVstSync),
 	m_vstSyncData( NULL ),
 	m_shm( NULL ),
 	m_inputCount( 0 ),
@@ -1225,52 +860,14 @@ RemotePluginClient::RemotePluginClient( const char * socketPath ) :
 	}
 #endif
 
-#ifdef USE_QT_SHMEM
-	if( m_shmQtID.attach( QSharedMemory::ReadOnly ) )
+	if (m_shmVstSync.attach(true))
 	{
-		m_vstSyncData = (VstSyncData *) m_shmQtID.data();
+		m_vstSyncData = (VstSyncData *) m_shmVstSync.get();
 		m_bufferSize = m_vstSyncData->m_bufferSize;
 		m_sampleRate = m_vstSyncData->m_sampleRate;
 		sendMessage( IdHostInfoGotten );
 		return;
 	}
-#else
-	key_t key;
-	int m_shmID;
-
-	if( ( key = ftok( VST_SNC_SHM_KEY_FILE, 'R' ) ) == -1 )
-	{
-		perror( "RemotePluginClient::ftok" );
-	}
-	else
-	{	// connect to shared memory segment
-		if( ( m_shmID = shmget( key, 0, 0 ) ) == -1 )
-		{
-			perror( "RemotePluginClient::shmget" );
-		}
-		else
-		{	// attach segment
-			m_vstSyncData = (VstSyncData *)shmat(m_shmID, 0, 0);
-			if( m_vstSyncData == (VstSyncData *)( -1 ) )
-			{
-				perror( "RemotePluginClient::shmat" );
-			}
-			else
-			{
-				m_bufferSize = m_vstSyncData->m_bufferSize;
-				m_sampleRate = m_vstSyncData->m_sampleRate;
-				sendMessage( IdHostInfoGotten );
-
-				// detach segment
-				if( shmdt(m_vstSyncData) == -1 )
-				{
-					perror("RemotePluginClient::shmdt");
-				}
-				return;
-			}
-		}
-	}
-#endif
 
 	// if attaching shared memory fails
 	sendMessage( IdSampleRateInformation );
@@ -1288,15 +885,6 @@ RemotePluginClient::RemotePluginClient( const char * socketPath ) :
 
 RemotePluginClient::~RemotePluginClient()
 {
-#ifdef USE_QT_SHMEM
-	m_shmQtID.detach();
-#endif
-	sendMessage( IdQuit );
-
-#ifndef USE_QT_SHMEM
-	shmdt( m_shm );
-#endif
-
 #ifndef SYNC_WITH_SHM_FIFO
 	if ( close( m_socket ) == -1)
 	{
@@ -1307,12 +895,10 @@ RemotePluginClient::~RemotePluginClient()
 
 
 
-#ifdef USE_QT_SHMEM
-VstSyncData * RemotePluginClient::getQtVSTshm()
+VstSyncData * RemotePluginClient::getVSTshm()
 {
 	return m_vstSyncData;
 }
-#endif
 
 
 
@@ -1385,43 +971,15 @@ bool RemotePluginClient::processMessage( const message & _m )
 
 
 
-void RemotePluginClient::setShmKey( key_t _key, int _size )
+void RemotePluginClient::setShmKey(key_t key, int size)
 {
-#ifdef USE_QT_SHMEM
-	m_shmObj.setKey( QString::number( _key ) );
-	if( m_shmObj.attach() || m_shmObj.error() == QSharedMemory::NoError )
+	(void)size;
+	m_shmObj.setKey(key);
+	if (!(m_shm = (float*)m_shmObj.attach()))
 	{
-		m_shm = (float *) m_shmObj.data();
+		std::string errorMsg = "failed getting shared memory: " + m_shmObj.errorMessage() + "\n";
+		debugMessage(errorMsg.data());
 	}
-	else
-	{
-		char buf[64];
-		sprintf( buf, "failed getting shared memory: %d\n", m_shmObj.error() );
-		debugMessage( buf );
-	}
-#else
-	if( m_shm != NULL )
-	{
-		shmdt( m_shm );
-		m_shm = NULL;
-	}
-
-	// only called for detaching SHM?
-	if( _key == 0 )
-	{
-		return;
-	}
-
-	int shm_id = shmget( _key, _size, 0 );
-	if( shm_id == -1 )
-	{
-		debugMessage( "failed getting shared memory\n" );
-	}
-	else
-	{
-		m_shm = (float *) shmat( shm_id, 0, 0 );
-	}
-#endif
 }
 
 

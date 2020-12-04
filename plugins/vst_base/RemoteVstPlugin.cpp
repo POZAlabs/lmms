@@ -97,18 +97,6 @@ struct ERect
 
 #include "VstSyncData.h"
 
-#ifdef LMMS_BUILD_WIN32
-#define USE_QT_SHMEM
-#endif
-
-#ifndef USE_QT_SHMEM
-#include <stdio.h>
-#include <stdlib.h>
-#include <sys/types.h>
-#include <sys/ipc.h>
-#include <sys/shm.h>
-#endif
-
 using namespace std;
 
 static VstHostLanguages hlang = LanguageEnglish;
@@ -150,9 +138,9 @@ class RemoteVstPlugin : public RemotePluginClient
 {
 public:
 #ifdef SYNC_WITH_SHM_FIFO
-	RemoteVstPlugin( key_t _shm_in, key_t _shm_out );
+	RemoteVstPlugin(key_t shmIn, key_t shmOut, key_t shmVstSync);
 #else
-	RemoteVstPlugin( const char * socketPath );
+	RemoteVstPlugin(const char * socketPath, key_t shmVstSync);
 #endif
 	virtual ~RemoteVstPlugin();
 
@@ -438,11 +426,11 @@ private:
 
 
 #ifdef SYNC_WITH_SHM_FIFO
-RemoteVstPlugin::RemoteVstPlugin( key_t _shm_in, key_t _shm_out ) :
-	RemotePluginClient( _shm_in, _shm_out ),
+RemoteVstPlugin::RemoteVstPlugin(key_t shmIn, key_t shmOut, key_t shmVstSync) :
+	RemotePluginClient(shmIn, shmOut, shmVstSync),
 #else
-RemoteVstPlugin::RemoteVstPlugin( const char * socketPath ) :
-	RemotePluginClient( socketPath ),
+RemoteVstPlugin::RemoteVstPlugin(const char * socketPath, key_t shmVstSync) :
+	RemotePluginClient(socketPath, shmVstSync),
 #endif
 	m_libInst( NULL ),
 	m_plugin( NULL ),
@@ -468,30 +456,7 @@ RemoteVstPlugin::RemoteVstPlugin( const char * socketPath ) :
 {
 	__plugin = this;
 
-#ifndef USE_QT_SHMEM
-	key_t key;
-	if( ( key = ftok( VST_SNC_SHM_KEY_FILE, 'R' ) ) == -1 )
-	{
-		perror( "RemoteVstPlugin.cpp::ftok" );
-	}
-	else
-	{	// connect to shared memory segment
-		if( ( m_shmID = shmget( key, 0, 0 ) ) == -1 )
-		{
-			perror( "RemoteVstPlugin.cpp::shmget" );
-		}
-		else
-		{	// attach segment
-			m_vstSyncData = (VstSyncData *)shmat(m_shmID, 0, 0);
-			if( m_vstSyncData == (VstSyncData *)( -1 ) )
-			{
-				perror( "RemoteVstPlugin.cpp::shmat" );
-			}
-		}
-	}
-#else
-	m_vstSyncData = RemotePluginClient::getQtVSTshm();
-#endif
+	m_vstSyncData = RemotePluginClient::getVSTshm();
 	if( m_vstSyncData == NULL )
 	{
 		fprintf(stderr, "RemoteVstPlugin.cpp: "
@@ -533,21 +498,6 @@ RemoteVstPlugin::~RemoteVstPlugin()
 	destroyEditor();
 	setResumed( false );
 	pluginDispatch( effClose );
-#ifndef USE_QT_SHMEM
-	// detach shared memory segment
-	if( shmdt( m_vstSyncData ) == -1)
-	{
-		if( __plugin->m_vstSyncData->hasSHM )
-		{
-			perror( "~RemoteVstPlugin::shmdt" );
-		}
-		if( m_vstSyncData != NULL )
-		{
-			delete m_vstSyncData;
-			m_vstSyncData = NULL;
-		}
-	}
-#endif
 
 	if( m_libInst != NULL )
 	{
@@ -2161,9 +2111,9 @@ LRESULT CALLBACK RemoteVstPlugin::wndProc( HWND hwnd, UINT uMsg,
 int main( int _argc, char * * _argv )
 {
 #ifdef SYNC_WITH_SHM_FIFO
-	if( _argc < 4 )
+	if( _argc < 5 )
 #else
-	if( _argc < 3 )
+	if( _argc < 4 )
 #endif
 	{
 		fprintf( stderr, "not enough arguments\n" );
@@ -2213,9 +2163,9 @@ int main( int _argc, char * * _argv )
 
 	{
 	#ifdef SYNC_WITH_SHM_FIFO
-		int embedMethodIndex = 3;
+		int embedMethodIndex = 4;
 	#else
-		int embedMethodIndex = 2;
+		int embedMethodIndex = 3;
 	#endif
 		std::string embedMethod = _argv[embedMethodIndex];
 
@@ -2254,9 +2204,9 @@ int main( int _argc, char * * _argv )
 	// constructor automatically will process messages until it receives
 	// a IdVstLoadPlugin message and processes it
 #ifdef SYNC_WITH_SHM_FIFO
-	__plugin = new RemoteVstPlugin( atoi( _argv[1] ), atoi( _argv[2] ) );
+	__plugin = new RemoteVstPlugin(atoi(_argv[1]), atoi(_argv[2]), atoi(_argv[3]));
 #else
-	__plugin = new RemoteVstPlugin( _argv[1] );
+	__plugin = new RemoteVstPlugin(_argv[1], atoi(_argv[2]));
 #endif
 
 	if( __plugin->isInitialized() )

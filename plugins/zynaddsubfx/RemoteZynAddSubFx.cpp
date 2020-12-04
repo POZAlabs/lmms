@@ -45,11 +45,11 @@ class RemoteZynAddSubFx : public RemotePluginClient, public LocalZynAddSubFx
 {
 public:
 #ifdef SYNC_WITH_SHM_FIFO
-	RemoteZynAddSubFx( int _shm_in, int _shm_out ) :
-		RemotePluginClient( _shm_in, _shm_out ),
+	RemoteZynAddSubFx(key_t shmIn, key_t shmOut, key_t shmVstSync) :
+		RemotePluginClient(shmIn, shmOut, shmVstSync),
 #else
-	RemoteZynAddSubFx( const char * socketPath ) :
-		RemotePluginClient( socketPath ),
+	RemoteZynAddSubFx(const char * socketPath, key_t shmVstSync) :
+		RemotePluginClient(socketPath, shmVstSync),
 #endif
 		LocalZynAddSubFx(),
 		m_guiSleepTime( 100 ),
@@ -260,9 +260,9 @@ void RemoteZynAddSubFx::guiLoop()
 int main( int _argc, char * * _argv )
 {
 #ifdef SYNC_WITH_SHM_FIFO
-	if( _argc < 3 )
+	if( _argc < 4 )
 #else
-	if( _argc < 2 )
+	if( _argc < 3 )
 #endif
 	{
 		fprintf( stderr, "not enough arguments\n" );
@@ -280,9 +280,9 @@ int main( int _argc, char * * _argv )
 
 #ifdef SYNC_WITH_SHM_FIFO
 	RemoteZynAddSubFx * remoteZASF =
-		new RemoteZynAddSubFx( atoi( _argv[1] ), atoi( _argv[2] ) );
+		new RemoteZynAddSubFx(atoi(_argv[1]), atoi(_argv[2]), atoi(_argv[3]));
 #else
-	RemoteZynAddSubFx * remoteZASF = new RemoteZynAddSubFx( _argv[1] );
+	RemoteZynAddSubFx * remoteZASF = new RemoteZynAddSubFx(_argv[1], atoi(_argv[2]));
 #endif
 
 	remoteZASF->guiLoop();

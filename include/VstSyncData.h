@@ -34,8 +34,6 @@
 //#define VST_SNC_LATENCY
 
 // define file for ftok as shared memory shmget key
-#define VST_SNC_SHM_KEY_FILE "/dev/null"
-//#define VST_SNC_SHM_RND_KEY 3561653564469
 
 
 

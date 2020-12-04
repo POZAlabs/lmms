@@ -339,6 +339,16 @@ public:
 
 	bool isSavingProject() const;
 
+	inline VstSyncController& vstSyncController()
+	{
+		return m_vstSyncController;
+	}
+
+	inline const VstSyncController& vstSyncController() const
+	{
+		return m_vstSyncController;
+	}
+
 public slots:
 	void playSong();
 	void record();

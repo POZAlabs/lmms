@@ -32,6 +32,7 @@
 #include "RemotePlugin.h"
 #include "Mixer.h"
 #include "Engine.h"
+#include "Song.h"
 
 #include <QDebug>
 #include <QDir>
@@ -78,7 +79,7 @@ void ProcessWatcher::run()
 RemotePlugin::RemotePlugin() :
 	QObject(),
 #ifdef SYNC_WITH_SHM_FIFO
-	RemotePluginBase( new shmFifo(), new shmFifo() ),
+	RemotePluginBase(new ShmFifo(), new ShmFifo()),
 #else
 	RemotePluginBase(),
 #endif
@@ -86,11 +87,7 @@ RemotePlugin::RemotePlugin() :
 	m_watcher( this ),
 	m_commMutex( QMutex::Recursive ),
 	m_splitChannels( false ),
-#ifdef USE_QT_SHMEM
 	m_shmObj(),
-#else
-	m_shmID( 0 ),
-#endif
 	m_shmSize( 0 ),
 	m_shm( NULL ),
 	m_inputCount( DEFAULT_CHANNELS ),
@@ -158,11 +155,6 @@ RemotePlugin::~RemotePlugin()
 			}
 			unlock();
 		}
-
-#ifndef USE_QT_SHMEM
-		shmdt( m_shm );
-		shmctl( m_shmID, IPC_RMID, NULL );
-#endif
 	}
 
 #ifndef SYNC_WITH_SHM_FIFO
@@ -184,7 +176,7 @@ bool RemotePlugin::init(const QString &pluginExecutable,
 	if( m_failed )
 	{
 #ifdef SYNC_WITH_SHM_FIFO
-		reset( new shmFifo(), new shmFifo() );
+		reset( new ShmFifo(), new ShmFifo() );
 #endif
 		m_failed = false;
 	}
@@ -227,6 +219,8 @@ bool RemotePlugin::init(const QString &pluginExecutable,
 #else
 	args << m_socketFile;
 #endif
+	// FIXME what should I pass as the ID?
+	args << QString::number(Engine::getSong()->vstSyncController().sharedMemoryKey());
 	args << extraArgs;
 #ifndef DEBUG_REMOTE_PLUGIN
 	m_process.setProcessChannelMode( QProcess::ForwardedChannels );
@@ -447,34 +441,13 @@ void RemotePlugin::resizeSharedProcessingMemory()
 							sizeof( float );
 	if( m_shm != NULL )
 	{
-#ifdef USE_QT_SHMEM
 		m_shmObj.detach();
-#else
-		shmdt( m_shm );
-		shmctl( m_shmID, IPC_RMID, NULL );
-#endif
 	}
 
-	static int shm_key = 0;
-#ifdef USE_QT_SHMEM
-	do
-	{
-		m_shmObj.setKey( QString( "%1" ).arg( ++shm_key ) );
-		m_shmObj.create( s );
-	} while( m_shmObj.error() != QSharedMemory::NoError );
-
-	m_shm = (float *) m_shmObj.data();
-#else
-	while( ( m_shmID = shmget( ++shm_key, s, IPC_CREAT | IPC_EXCL |
-								0600 ) ) == -1 )
-	{
-	}
-
-	m_shm = (float *) shmat( m_shmID, 0, 0 );
-#endif
-	m_shmSize = s;
+	static int shmKey = 0;
+	m_shm = (float*)createShmWithFreeKey(m_shmObj, s, shmKey);
 	sendMessage( message( IdChangeSharedMemoryKey ).
-				addInt( shm_key ).addInt( m_shmSize ) );
+				addInt( shmKey ).addInt( m_shmSize ) );
 }
 
 
