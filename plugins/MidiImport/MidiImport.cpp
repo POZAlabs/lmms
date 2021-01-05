@@ -30,6 +30,7 @@
 #include <QMessageBox>
 #include <QProgressDialog>
 
+#include <cmath>
 #include <sstream>
 #include <map>
 #include <memory>
@@ -533,7 +534,7 @@ bool MidiImport::readSMF( TrackContainer* tc )
 				Note n( (ticks < 1 ? 1 : ticks ),
 						noteEvt->get_start_time() * ticksPerBeat,
 						noteEvt->get_identifier() + pitchCorrection,
-						noteEvt->get_loud() * (200.f / 127.f)); // Map from MIDI velocity to LMMS volume
+						std::round(noteEvt->get_loud() * (200.f / 127.f))); // Map from MIDI velocity to LMMS volume
 				ch->addNote( n );
 
 			}

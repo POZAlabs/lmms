@@ -28,6 +28,8 @@
 
 #include <QtCore/QVector>
 
+#include <cmath>
+
 #include "volume.h"
 #include "panning.h"
 #include "MidiTime.h"
@@ -187,7 +189,7 @@ public:
 
 	int midiVelocity( int midiBaseVelocity ) const
 	{
-		return qMin( MidiMaxVelocity, getVolume() * midiBaseVelocity / DefaultVolume );
+		return qMin<int>(MidiMaxVelocity, std::round(static_cast<float>(getVolume()) * midiBaseVelocity / DefaultVolume));
 	}
 
 	inline panning_t getPanning() const
