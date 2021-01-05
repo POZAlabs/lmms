@@ -230,7 +230,7 @@ void printHelp()
 		"          Range: 44100 (default) to 192000\n"
 		"  -x, --oversampling <value>     Specify oversampling\n"
 		"          Possible values: 1, 2, 4, 8\n"
-		"          Default: 2\n\n",
+		"          Default: 1\n\n",
 		LMMS_VERSION, LMMS_PROJECT_COPYRIGHT );
 }
 
@@ -397,7 +397,10 @@ int main( int argc, char * * argv )
 			new QCoreApplication( argc, argv ) :
 					new MainApplication( argc, argv );
 
-	Mixer::qualitySettings qs( Mixer::qualitySettings::Mode_HighQuality );
+	Mixer::qualitySettings qs(
+		Mixer::qualitySettings::Interpolation_SincMedium,
+		Mixer::qualitySettings::Oversampling_None
+	);
 	OutputSettings os( 44100, OutputSettings::BitRateSettings(160, false), OutputSettings::Depth_16Bit, OutputSettings::StereoMode_JointStereo );
 	ProjectRenderer::ExportFileFormats eff = ProjectRenderer::WaveFile;
 
