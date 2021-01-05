@@ -68,6 +68,7 @@
 #include "ImportFilter.h"
 #include "JsonDataFile.h"
 #include "MainWindow.h"
+#include "Mixer.h"
 #include "MixHelpers.h"
 #include "OutputSettings.h"
 #include "ScriptPlugin.h"
@@ -893,6 +894,10 @@ int main( int argc, char * * argv )
 	int ret = EXIT_FAILURE;
 
 	EngineGuard guard(coreOnly);
+	if (coreOnly)
+	{
+		Engine::mixer()->changeQuality(qs);
+	}
 
 	if (!importFiles.isEmpty() && coreOnly)
 	{
