@@ -359,6 +359,9 @@ public:
 };
 
 
+static std::map<int, smfMidiChannel> s_trackCache{};
+
+
 bool MidiImport::readSMF( TrackContainer* tc )
 {
 	std::unique_ptr<QProgressDialog> pd;
@@ -429,6 +432,13 @@ bool MidiImport::readSMF( TrackContainer* tc )
 	auto mappingForChannel = [&mappings, &defaultMapping](int index) {
 		return mappings.count(index) ? mappings[index] : defaultMapping;
 	};
+
+	// Load track cache if enabled
+	if (ConfigManager::inst()->value("tmp", "midiimportcache").toInt(0))
+	{
+		using std::swap;
+		swap(chs, s_trackCache);
+	}
 
 	// Time-sig changes
 	Alg_time_sigs * timeSigs = &seq->time_sig;
@@ -671,6 +681,12 @@ bool MidiImport::readSMF( TrackContainer* tc )
 		// If not, this has to be made configurable.
 		chs[9].it_inst->childModel( "bank" )->setValue( 128 );
 		chs[9].it_inst->childModel( "patch" )->setValue( 0 );
+	}
+
+	// store track cache
+	{
+		using std::swap;
+		swap(chs, s_trackCache);
 	}
 
 	return true;
