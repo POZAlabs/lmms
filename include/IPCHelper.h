@@ -122,17 +122,13 @@ public:
 
 	inline void* attach(bool readOnly = false)
 	{
-		if (m_shmID == -1)
-		{
-			return nullptr;
-		}
 		if (!m_isMaster)
 		{
 			m_shmID = shmget(m_key, 0, readOnly ? 0400 : 0600);
-			if (m_shmID == -1)
-			{
-				return nullptr;
-			}
+		}
+		if (m_shmID == -1)
+		{
+			return nullptr;
 		}
 		m_data = shmat(m_shmID, 0, readOnly ? SHM_RDONLY : 0);
 		if (m_data == reinterpret_cast<void*>(-1))
@@ -182,6 +178,7 @@ public:
 		{
 			return nullptr;
 		}
+		fprintf(stderr, "CREAT %d\n", m_key);
 		m_isMaster = true;
 		m_size = size;
 		return this->attach();
