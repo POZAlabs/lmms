@@ -33,8 +33,10 @@
 #include "Engine.h"
 #include "FxMixer.h"
 #include "ImportFilter.h"
+#include "RenderManager.h"
 #include "SampleTrack.h"
 #include "Song.h"
+#include "stdshims.h"
 
 #include <QCoreApplication>
 #include <QDebug>
@@ -42,8 +44,10 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QTimer>
 #include <QThread>
 
+#include <memory>
 #include <tuple>
 #include <vector>
 
@@ -133,6 +137,21 @@ void AudioMixMaster::evaluateScript(const QString & scriptName, const QString & 
 	Engine::getSong()->clearProject();
 	QJsonObject obj = doc.object();
 	QJsonArray inputs = obj["inputs"].toArray();
+
+	auto busyWait = [] (int waittime)
+	{
+		if (waittime)
+		{
+			qInfo("Waiting %dms...", waittime);
+			QElapsedTimer timer;
+			timer.start();
+			while (!timer.hasExpired(waittime))
+			{
+				QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+				QThread::msleep(20);
+			}
+		}
+	};
 
 	auto processEffects = [](QJsonArray effects, int idx)
 	{
@@ -285,6 +304,27 @@ void AudioMixMaster::evaluateScript(const QString & scriptName, const QString & 
 		return sourceIndex;
 	};
 
+	auto processInputFile = [&processEffects] (QJsonObject inputObj, QJsonObject infoObj, int fxCh = 0)
+	{
+		QString sampleFile = inputObj["audiofile"].toString();
+		if (!sampleFile.isEmpty())
+		{
+			// add a sample track
+			SampleTrack *st = static_cast<SampleTrack*>(Track::create(Track::SampleTrack, Engine::getSong()));
+			st->effectChannelModel()->setInitValue(fxCh);
+
+			// load the sample track
+			SampleTCO *stco = static_cast<SampleTCO*>(st->createTCO(MidiTime(0)));
+			stco->setSampleFile(sampleFile);
+		}
+
+		QString midiFile = inputObj["midifile"].toString();
+		if (!midiFile.isEmpty())
+		{
+			ConfigManager::inst()->setValue("tmp", "midifxch", QString::number(fxCh));
+			ImportFilter::import(midiFile, Engine::getSong(), infoObj["midiconfig"]);
+		}
+	};
 	// now process channels
 	int curIndex = 1; // 0 is master
 	int masterIndex = 0;
@@ -310,6 +350,23 @@ void AudioMixMaster::evaluateScript(const QString & scriptName, const QString & 
 	}
 
 	// others for inputs
+	bool batchMode = obj["batch"].toBool(false);
+	int jobCount = obj["jobcount"].toInt(0);
+	std::vector<int> targetFxChannels;
+	if (batchMode)
+	{
+		if (jobCount < 1)
+		{
+			qWarning("Invalid job count!");
+			jobCount = 0;
+		}
+		else if (jobCount > 1000)
+		{
+			qWarning("Too many jobs to process.");
+			jobCount = 1000;
+		}
+	}
+
 	for (auto elem : inputs) // TODO
 	{
 		if (!elem.isObject())
@@ -322,24 +379,97 @@ void AudioMixMaster::evaluateScript(const QString & scriptName, const QString & 
 
 		// setup channels
 		int sourceIndex = processChannels(currentInput["channels"].toArray(), curIndex, masterIndex);
-
-		QString sampleFile = currentInput["audiofile"].toString();
-		if (!sampleFile.isEmpty())
+		if (!batchMode)
 		{
-			// add a sample track
-			SampleTrack *st = static_cast<SampleTrack*>(Track::create(Track::SampleTrack, Engine::getSong()));
-			st->effectChannelModel()->setInitValue(sourceIndex);
-
-			// load the sample track
-			SampleTCO *stco = static_cast<SampleTCO*>(st->createTCO(MidiTime(0)));
-			stco->setSampleFile(sampleFile);
+			processInputFile(currentInput, currentInput, sourceIndex);
 		}
-
-		QString midiFile = currentInput["midifile"].toString();
-		if (!midiFile.isEmpty())
+		else
 		{
-			ConfigManager::inst()->setValue("tmp", "midifxch", QString::number(sourceIndex));
-			ImportFilter::import(midiFile, Engine::getSong(), currentInput["midiconfig"]);
+			targetFxChannels.push_back(sourceIndex);
+		}
+	}
+
+	if (batchMode)
+	{
+		ConfigManager::inst()->setValue("tmp", "midiimportcache", "1");
+		QJsonArray outputPaths = obj["outputs"].toArray();
+		for (int i = 0; i < jobCount; ++i)
+		{
+			if (i != 0)
+			{
+				// Cleanup from the last import
+				std::vector<Track*> tracksToRemove;
+				for (auto track: Engine::getSong()->tracks())
+				{
+					if (track->type() != Track::TrackTypes::InstrumentTrack)
+					{
+						tracksToRemove.push_back(track);
+					}
+					else
+					{
+						track->deleteTCOs();
+					}
+				}
+				for (auto track: tracksToRemove)
+				{
+					// TODO: this should work with GUI as well...
+					Engine::getSong()->removeTrack(track);
+				}
+			}
+			for (auto elem : inputs) // TODO
+			{
+				if (!elem.isObject())
+				{
+					// qWarning("Input descriptor is not an object.");
+					continue;
+				}
+
+				const QJsonArray inputBatch = elem.toObject()["batch"].toArray();
+				if (i >= inputBatch.size())
+				{
+					continue;
+				}
+
+				processInputFile(inputBatch[i].toObject(), elem.toObject(), targetFxChannels[i]);
+			}
+
+			// Post-setup steps
+			if (i == 0)
+			{
+				busyWait(obj["waittime"].toInt(0));
+			}
+
+			if (i < outputPaths.size())
+			{
+				const QString outPath = outputPaths[i].toString();
+				// TODO validate as well
+				if (!outPath.isEmpty())
+				{
+					std::unique_ptr<RenderManager> r = make_unique<RenderManager>(
+						Engine::mixer()->currentQualitySettings(),
+						OutputSettings(
+							Engine::mixer()->outputSampleRate(),
+							OutputSettings::BitRateSettings(160, false), // ignored in WAV files
+							OutputSettings::Depth_16Bit
+						),
+						ProjectRenderer::ExportFileFormats::WaveFile,
+						outPath
+					);
+					bool renderDone = false;
+					QObject::connect(r.get(), &RenderManager::finished, [&renderDone](){renderDone = true;});
+
+					// stolen from main.cpp
+					QTimer * t = new QTimer(r.get());
+					r->connect(t, SIGNAL(timeout()), SLOT(updateConsoleProgress()));
+					t->start(200);
+					r->renderProject();
+
+					while (!renderDone)
+					{
+						QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents | QEventLoop::WaitForMoreEvents, 50);
+					}
+				}
+			}
 		}
 	}
 
@@ -353,17 +483,9 @@ void AudioMixMaster::evaluateScript(const QString & scriptName, const QString & 
 			return;
 		}
 	}
-	int waittime = obj["waittime"].toInt(0);
-	if (waittime)
+	if (!batchMode)
 	{
-		qInfo("Waiting %dms...", waittime);
-		QElapsedTimer timer;
-		timer.start();
-		while (!timer.hasExpired(waittime))
-		{
-			QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
-			QThread::msleep(20);
-		}
+		busyWait(obj["waittime"].toInt(0));
 	}
 	qInfo("Done.");
 }
