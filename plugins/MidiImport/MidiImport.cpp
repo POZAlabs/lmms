@@ -464,14 +464,17 @@ bool MidiImport::readSMF( TrackContainer* tc )
 		for( int i = 0; i < beats.len - 1; i++ )
 		{
 			Alg_beat_ptr b = &(beats[i]);
+			if (beats[i + 1].time == beats[i].time) { continue; }
 			double tempo = ( beats[i + 1].beat - b->beat ) /
 						   ( beats[i + 1].time - beats[i].time );
 			tap->putValue( b->beat * ticksPerBeat, round(tempo * 60.0) );
+			if (b->beat == 0) { Engine::getSong()->setTempo(round(tempo * 60.0)); }
 		}
 		if( timeMap->last_tempo_flag )
 		{
 			Alg_beat_ptr b = &( beats[beats.len - 1] );
 			tap->putValue( b->beat * ticksPerBeat, round(timeMap->last_tempo * 60.0) );
+			if (b->beat == 0) { Engine::getSong()->setTempo(round(timeMap->last_tempo * 60.0)); }
 		}
 	}
 
