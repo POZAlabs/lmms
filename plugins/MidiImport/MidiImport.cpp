@@ -161,14 +161,12 @@ class smfMidiCC
 public:
 	smfMidiCC() :
 		at( NULL ),
-		ap( NULL ),
-		lastPos( 0 )
-	{ }
-	
+		ap( NULL )
+	{}
+
 	AutomationTrack * at;
 	AutomationPattern * ap;
-	MidiTime lastPos;
-	
+
 	smfMidiCC & create( TrackContainer* tc, QString tn )
 	{
 		if( !at )
@@ -190,25 +188,21 @@ public:
 	{
 		at = NULL;
 		ap = NULL;
-		lastPos = 0;
 	}
 
 
 	smfMidiCC & putValue( MidiTime time, AutomatableModel * objModel, float value )
 	{
-		if( !ap || time > lastPos + DefaultTicksPerBar )
+		if (!ap)
 		{
-			MidiTime pPos = MidiTime( time.getBar(), 0 );
 			ap = dynamic_cast<AutomationPattern*>(
 				at->createTCO(0) );
-			ap->movePosition( pPos );
+			ap->movePosition(0);
 			ap->addObject( objModel );
 		}
 
-		lastPos = time;
-		time = time - ap->startPosition();
 		ap->putValue( time, value, false );
-		ap->changeLength( MidiTime( time.getBar() + 1, 0 ) ); 
+		ap->changeLength( MidiTime( time.getBar() + 1, 0 ) );
 
 		return *this;
 	}
