@@ -38,6 +38,7 @@ EffectChain::EffectChain( Model * _parent ) :
 	SerializingObject(),
 	m_enabledModel( false, NULL, tr( "Effects enabled" ) )
 {
+	connect(&m_enabledModel, &BoolModel::dataChanged, this, &EffectChain::startRunning);
 }
 
 
